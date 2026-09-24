@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-const data=JSON.parse(fs.readFileSync(new URL('./data.json',import.meta.url),'utf8'));
+const data=JSON.parse(fs.readFileSync(new URL('./public/data.json',import.meta.url),'utf8'));
 const ids=new Set(data.units.map(u=>u.id));
 if(data.units.length!==217) throw new Error(`학습 단위 수 오류: ${data.units.length}`);
 if(ids.size!==data.units.length) throw new Error('중복 학습 단위 ID');

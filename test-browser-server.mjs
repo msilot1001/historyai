@@ -4,7 +4,7 @@ import { extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 const events=[];
-const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.pdf':'application/pdf','.ttf':'font/ttf'};
+const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.pdf':'application/pdf','.ttf':'font/ttf','.json':'application/json'};
 
 createServer(async(req,res)=>{
   if(req.url?.startsWith('/api/study')){
@@ -26,6 +26,6 @@ createServer(async(req,res)=>{
   }
   const path=new URL(req.url,'http://localhost').pathname;
   const file=path==='/'||path.startsWith('/coach')||path.startsWith('/review')||path.startsWith('/study/')?'index.html':path.replace(/^\//,'');
-  try{const data=await readFile(join(import.meta.dirname,file));res.setHeader('Content-Type',types[extname(file)]||'application/octet-stream');res.end(data)}
+  try{const data=await readFile(join(import.meta.dirname,'dist',file));res.setHeader('Content-Type',types[extname(file)]||'application/octet-stream');res.end(data)}
   catch{res.writeHead(404);res.end('not found')}
 }).listen(8771,'0.0.0.0',()=>console.log('Browser test server on 8771'));
