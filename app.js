@@ -1,5 +1,5 @@
 import { DATA, byId, questionBank, units } from './src/lib/data.ts';
-import { buildSession, currentUnit, draftKey, filtered, modeIndex, resetState, roundUnits, save, setStatusHandler, state, totalSets } from './src/lib/state.ts';
+import { buildSession, currentUnit, draftKey, filtered, modeIndex, roundUnits, save, setStatusHandler, state } from './src/lib/state.ts';
 import { esc, gradingText, text, yearText } from './src/lib/text.ts';
 import { targets as clozeTargets } from './src/lib/cloze.ts';
 import { questionPool as buildQuestionPool } from './src/lib/questions.ts';
@@ -9,12 +9,17 @@ import { learningSnapshot as snapshotOf } from './src/lib/snapshot.ts';
 // ponytail: legacy view layer. All domain logic now lives in src/lib/; this file is being
 // replaced feature by feature with React components and is deleted at the end of the migration.
 const $=(s,r=document)=>r.querySelector(s);
-const app=$('#app');
+let app=null;
+let navigate=path=>{history.pushState({},'',path)};
+let keyHandler=null;
+
+/** Render an unported route into a container React owns. Removed with this file. */
+export function mountLegacy(container,go_){app=container;navigate=go_;setStatusHandler(setStatus);attempt={revealed:false,checked:false,hint:false};render()}
+export function unmountLegacy(){if(keyHandler)document.removeEventListener('keydown',keyHandler);keyHandler=null;app=null}
 const current=(mode=pathMode())=>currentUnit(mode);
 const targets=(u,stage,random)=>clozeTargets(u,stage,random,state.blankSeed);
 const questionPool=()=>buildQuestionPool({questionBank,byId,state,filtered,buildSession});
 const learningSnapshot=()=>snapshotOf(cloudEventList());
-setStatusHandler(setStatus);
 const modes={
   memorize:['먼저 외우기','정답을 그대로 넘겨 보며 머릿속에 먼저 담기'],
   recall:['읽고 가리기','원문의 자리와 문장을 통째로 복원'],
@@ -34,19 +39,9 @@ function bindAccess(ready){const input=$('#accessCode');$('#saveCode').onclick=(
 function setStatus(t){const e=$('.status');if(e)e.textContent=t}
 function toast(t){const e=$('#toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1700)}
 function modeLength(mode){return mode==='questions'?questionPool().length:state.session.length}
-function go(path){history.pushState({},'',path);attempt={revealed:false,checked:false,hint:false};render();scrollTo(0,0)}
+function go(path){attempt={revealed:false,checked:false,hint:false};navigate(path)}
 function pathMode(){const mode=location.pathname.match(/^\/study\/([^/]+)/)?.[1];return mode==='quiz'?'questions':mode}
 function bindLinks(){document.querySelectorAll('[data-link]').forEach(a=>a.onclick=e=>{e.preventDefault();go(a.getAttribute('href'))})}
-
-function home(){
-  const topicOptions=DATA.topics.map(t=>`<option value="${t.number}" ${String(state.topic)===String(t.number)?'selected':''}>주제 ${t.number} · ${esc(t.title)}</option>`).join('');
-  const pool=filtered(),size=Number(state.count)||10,setCount=totalSets();state.setIndex=Math.min(state.setIndex||0,setCount-1);const start=state.setIndex*size,end=Math.min(start+size,pool.length),percent=Math.round(((state.setIndex+1)/setCount)*100);
-  app.innerHTML=`<section class="hero"><div><div class="kicker">137개 원문 · 217개 학습 카드</div><h1>문장을 외우고,<br>자리를 기억한다.</h1><p>연표 노트의 문구는 그대로 두고, 학습 방식에 맞춰 화면만 바꿉니다.</p></div><section class="setup-card compact-setup" aria-label="학습 세트"><div class="setup-fields"><label class="field">범위<select id="topic"><option value="all">전체 주제</option>${topicOptions}</select></label><label class="field small-field">분량<select id="count"><option ${state.count==6?'selected':''}>6</option><option ${state.count==10?'selected':''}>10</option><option ${state.count==20?'selected':''}>20</option></select></label></div><div class="set-row"><div class="set-copy"><strong>${state.setIndex+1} / ${setCount} 세트</strong><span>${pool.length?`${start+1}–${end}번째 카드 · 전체 ${pool.length}개`:'선택 범위에 카드 없음'}</span><i style="--set-progress:${percent}%"></i></div><div class="set-actions"><button class="ghost" id="prevSet" ${state.setIndex===0?'disabled':''} aria-label="이전 학습 세트">←</button><button id="nextSet" ${state.setIndex>=setCount-1?'disabled':''}>다음 세트 →</button></div></div></section></section><section class="mode-grid"><a class="mode-card mode-coach" href="/coach" data-link><b>AI 코칭 · 누적 학습 분석</b><h2>내가 아는 것과 놓친 것</h2><p>핵심 사실별 진단 · 취약 주제 · 놓친 내용 다시보기 · 보완 리캡</p><span class="arrow">→</span></a>${Object.entries(modes).map(([id,[name,desc]],i)=>`<a class="mode-card ${id==='memorize'?'mode-zero':''}" href="/study/${id==='questions'?'quiz':id}" data-link><b>${String(i).padStart(2,'0')}</b><h2>${name}</h2><p>${desc}</p><span class="arrow">→</span></a>`).join('')}</section><div class="home-foot"><span>파스텔 그린 · Wanted Sans</span><span>퀴즈 답안은 클라우드, 나머지 진도는 브라우저에 저장</span><button class="ghost danger" id="reset">로컬 학습 기록 초기화</button></div>`;
-  const applySettings=()=>{if(state.topic!==$('#topic').value)state.indices.questions=0;state.topic=$('#topic').value;state.count=Number($('#count').value);state.setIndex=0;buildSession();render();toast('첫 세트로 변경했습니다')};$('#topic').onchange=applySettings;$('#count').onchange=applySettings;
-  $('#prevSet').onclick=()=>{if(state.setIndex>0){state.setIndex--;buildSession();render()}};$('#nextSet').onclick=()=>{if(state.setIndex<setCount-1){state.setIndex++;buildSession();render()}};
-  $('#reset').onclick=()=>{if(confirm('학습 기록과 초안을 모두 지울까요? 원문은 지워지지 않습니다.')){resetState();render()}};
-  bindLinks();
-}
 
 function shell(mode,content){
   if(!state.session.length)buildSession();
@@ -161,5 +156,5 @@ function moveOrder(i,d,focusId){const j=i+d;[state.order[i],state.order[j]]=[sta
 const pairNames=[['국내 비밀 결사와 의병','의열 투쟁'],['이봉창 의거','윤봉길 의거'],['제1차 미소 공동 위원회','제2차 미소 공동 위원회'],['발췌 개헌','사사오입 개헌'],['봉오동 전투','청산리 대첩']];
 function compare(){const pairs=pairNames.map(names=>names.map(n=>units.find(u=>u.title===n))).filter(p=>p.every(Boolean)),pair=pairs[modeIndex('compare')%pairs.length]||[current(),units[current().sourceIndex+1]||units[0]];shell('compare',`<p class="prompt">관련 사건의 원문 표현을 나란히 보고 공통점과 차이를 기억하세요.</p><div class="compare"><section class="surface">${paperSurface(pair[0]).replace(/^<section class="surface">|<\/section>$/g,'')}<div class="answer"><label>${esc(pair[0].title)} 메모<textarea data-compare="${pair[0].id}">${esc(state.drafts[draftKey('compare',pair[0])]||'')}</textarea></label></div></section><section class="surface">${paperSurface(pair[1]).replace(/^<section class="surface">|<\/section>$/g,'')}<div class="answer"><label>${esc(pair[1].title)} 메모<textarea data-compare="${pair[1].id}">${esc(state.drafts[draftKey('compare',pair[1])]||'')}</textarea></label></div></section></div>${navigation('compare')}`);document.querySelectorAll('[data-compare]').forEach(a=>a.oninput=()=>{state.drafts[draftKey('compare',byId.get(a.dataset.compare))]=a.value;save()});bindNav('compare');resizePapers()}
 
-function render(){const mode=pathMode();if(location.pathname==='/coach/recap')coachRecap();else if(location.pathname==='/coach'||location.pathname==='/review')coach();else if(!mode||!modes[mode])home();else if(mode==='memorize')memorize();else if(mode==='recall')recall();else if(mode==='blanks'||mode==='stages')clozeMode(mode);else if(mode==='questions')questions();else if(mode==='timeline')timeline();else if(mode==='order')order();else compare();document.onkeydown=e=>{if(e.isComposing)return;if(e.altKey&&e.key==='ArrowLeft'){$('[data-prev]')?.click();e.preventDefault()}else if(e.altKey&&e.key==='ArrowRight'){$('[data-next]')?.click();e.preventDefault()}else if(mode==='memorize'&&e.target===document.body&&(e.key==='Enter'||e.key==='ArrowRight')){$('[data-next]')?.click();e.preventDefault()}else if(mode==='memorize'&&e.target===document.body&&e.key==='ArrowLeft'){$('[data-prev]')?.click();e.preventDefault()}};requestAnimationFrame(resizePapers)}
-addEventListener('popstate',()=>{attempt={revealed:false,checked:false,hint:false};render()});addEventListener('resize',resizePapers);render();
+function render(){const mode=pathMode();if(location.pathname==='/coach/recap')coachRecap();else if(location.pathname==='/coach'||location.pathname==='/review')coach();else if(mode==='memorize')memorize();else if(mode==='recall')recall();else if(mode==='blanks'||mode==='stages')clozeMode(mode);else if(mode==='questions')questions();else if(mode==='timeline')timeline();else if(mode==='order')order();else compare();if(keyHandler)document.removeEventListener('keydown',keyHandler);keyHandler=e=>{if(e.isComposing)return;if(e.altKey&&e.key==='ArrowLeft'){$('[data-prev]')?.click();e.preventDefault()}else if(e.altKey&&e.key==='ArrowRight'){$('[data-next]')?.click();e.preventDefault()}else if(mode==='memorize'&&e.target===document.body&&(e.key==='Enter'||e.key==='ArrowRight')){$('[data-next]')?.click();e.preventDefault()}else if(mode==='memorize'&&e.target===document.body&&e.key==='ArrowLeft'){$('[data-prev]')?.click();e.preventDefault()}};document.addEventListener('keydown',keyHandler);requestAnimationFrame(resizePapers)}
+addEventListener('resize',resizePapers);
