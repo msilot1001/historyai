@@ -7,7 +7,7 @@ cd "$ROOT"
 GOAL="${*:-}"
 
 if [[ -z "$GOAL" ]]; then
-  echo 'Usage: ./day "오늘 할 것"'
+  echo 'Usage: ./day.sh "오늘 할 것"'
   exit 1
 fi
 
@@ -23,7 +23,7 @@ done
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree is not clean."
-  echo "Commit or stash current changes before running ./day."
+  echo "Commit or stash current changes before running ./day.sh."
   exit 1
 fi
 
@@ -76,10 +76,11 @@ echo
 
 codex exec --sandbox read-only --output-last-message "$RUN_DIR/plan.json" "$(cat "$PLANNER_PROMPT")" > "$RUN_DIR/planner.log" 2>&1
 
-python3 - "$RUN_DIR/plan.json" <<'PY'
+python3 - "$RUN_DIR/plan.json" "$GOAL" <<'PY'
 import json, sys
 
 path = sys.argv[1]
+goal = sys.argv[2]
 
 with open(path, encoding="utf-8") as f:
     data = json.load(f)
@@ -89,6 +90,25 @@ if not tasks:
     raise SystemExit("Planner returned no tasks.")
 if any(t.get("agent") != "codex" for t in tasks):
     raise SystemExit("Planner returned a non-Codex worker.")
+ids = [t.get("id") for t in tasks]
+if any(not isinstance(i, str) or not i.isascii() or not i.replace("_", "").isalnum() for i in ids) or len(set(ids)) != len(ids):
+    raise SystemExit("Planner returned invalid or duplicate task IDs.")
+if any(not isinstance(t.get("parallel_group"), int) or t["parallel_group"] < 1 for t in tasks):
+    raise SystemExit("Planner returned invalid parallel groups.")
+groups = {t["parallel_group"] for t in tasks}
+if any(sum(t["parallel_group"] == group for t in tasks) > 2 for group in groups):
+    raise SystemExit("Planner assigned more than two concurrent workers.")
+order = data.get("integration_order")
+if not isinstance(order, list) or sorted(order) != sorted(ids):
+    raise SystemExit("Integration order must list every task exactly once.")
+if "캠페인" in goal and not data.get("full_campaign"):
+    raise SystemExit("Planner omitted the requested full campaign.")
+if data.get("full_campaign"):
+    covered = {n for t in tasks for n in t.get("requirements", [])}
+    if covered != set(range(1, 6)):
+        raise SystemExit("Full campaign plan must cover requirements 1–5.")
+    if not data.get("release", {}).get("enabled"):
+        raise SystemExit("Full campaign plan must include a release phase.")
 
 print()
 print("=== TODAY'S PLAN ===")
@@ -100,11 +120,21 @@ for t in data.get("tasks", []):
     print(f"  agent: {t['agent']}")
     print(f"  difficulty: {t.get('difficulty', 'normal')}")
     print(f"  parallel group: {t.get('parallel_group', 1)}")
+    if t.get("requirements"):
+        print(f"  requirements: {', '.join(map(str, t['requirements']))}")
     files = ", ".join(t.get("expected_files", []))
     if files:
         print(f"  expected files: {files}")
     print(f"  goal: {t.get('goal', '')}")
+    for criterion in t.get("acceptance", []):
+        print(f"    - {criterion}")
 
+print()
+print("Release phase:", "included" if data.get("release", {}).get("enabled") else "none")
+if data.get("release", {}).get("enabled"):
+    print(data["release"].get("instructions", ""))
+for note in data.get("notes", []):
+    print(f"- {note}")
 print()
 PY
 
@@ -180,7 +210,7 @@ PY
   BRANCH="ai/day-${RUN_ID}-${TASK_ID}"
   WORKTREE="$ROOT/.worktrees/${RUN_ID}-${TASK_ID}"
 
-  git worktree add -b "$BRANCH" "$WORKTREE" "$BASE_BRANCH"
+  git worktree add -b "$BRANCH" "$WORKTREE" "$INTEGRATION_BRANCH"
 
   cp .ai/GOAL.md "$WORKTREE/.ai/GOAL.md"
 
@@ -191,6 +221,7 @@ PY
 
     echo "[$TASK_ID] Starting $AGENT: $TITLE"
 
+    npm ci --no-audit --no-fund
     ${CODEX_CMD:-codex exec --full-auto} "$PROMPT"
 
     npm test
@@ -207,15 +238,20 @@ PY
   echo "[$TASK_ID] Done"
 }
 
-GROUPS="$(python3 - "$RUN_DIR/plan.json" <<'PY'
+INTEGRATION_BRANCH="ai/integration-${RUN_ID}"
+INTEGRATION_DIR="$ROOT/.worktrees/integration-${RUN_ID}"
+
+git worktree add -b "$INTEGRATION_BRANCH" "$INTEGRATION_DIR" "$BASE_BRANCH"
+
+DAY_GROUPS="$(python3 - "$RUN_DIR/plan.json" <<'PY'
 import json, sys
 p=json.load(open(sys.argv[1]))
 print(" ".join(str(x) for x in sorted(set(t.get("parallel_group",1) for t in p["tasks"]))))
 PY
 )"
 
-for GROUP in $GROUPS; do
-  IDS="$(python3 - "$RUN_DIR/plan.json" "$GROUP" <<'PY'
+for DAY_GROUP in $DAY_GROUPS; do
+  IDS="$(python3 - "$RUN_DIR/plan.json" "$DAY_GROUP" <<'PY'
 import json, sys
 p=json.load(open(sys.argv[1]))
 g=int(sys.argv[2])
@@ -244,45 +280,90 @@ PY
     echo "Logs: $RUN_DIR"
     exit 1
   fi
-done
 
-INTEGRATION_BRANCH="ai/integration-${RUN_ID}"
-INTEGRATION_DIR="$ROOT/.worktrees/integration-${RUN_ID}"
-
-git worktree add -b "$INTEGRATION_BRANCH" "$INTEGRATION_DIR" "$BASE_BRANCH"
-
-cd "$INTEGRATION_DIR"
-
-ORDER="$(python3 - "$RUN_DIR/plan.json" <<'PY'
+  ORDER="$(python3 - "$RUN_DIR/plan.json" "$DAY_GROUP" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
-print(" ".join(p.get("integration_order") or [t["id"] for t in p["tasks"]]))
+g=int(sys.argv[2])
+task_by_id={t["id"]:t for t in p["tasks"]}
+print(" ".join(i for i in p["integration_order"] if task_by_id[i]["parallel_group"] == g))
 PY
 )"
 
-for ID in $ORDER; do
-  BRANCH="ai/day-${RUN_ID}-${ID}"
+  for ID in $ORDER; do
+    BRANCH="ai/day-${RUN_ID}-${ID}"
 
-  echo "Merging $BRANCH..."
+    echo "Merging $BRANCH..."
 
-  if ! git merge --no-edit "$BRANCH"; then
-    echo
-    echo "Merge conflict."
-    echo "Integration worktree:"
-    echo "$INTEGRATION_DIR"
-    echo
-    echo "No automatic conflict resolution was attempted."
-    exit 1
-  fi
+    if ! git -C "$INTEGRATION_DIR" merge --no-edit "$BRANCH"; then
+      echo
+      echo "Integration failed. Inspect the worktree and task logs:"
+      echo "  $INTEGRATION_DIR"
+      echo "  $RUN_DIR"
+      exit 1
+    fi
+  done
 done
 
 echo
 echo "Running integrated verification..."
-npm test
-npm run build
+npm --prefix "$INTEGRATION_DIR" ci --no-audit --no-fund
+npm --prefix "$INTEGRATION_DIR" test
+npm --prefix "$INTEGRATION_DIR" run build
 
-git log --oneline "$BASE_BRANCH"..HEAD > "$RUN_DIR/integration-commits.txt"
-git diff --stat "$BASE_BRANCH"...HEAD > "$RUN_DIR/integration-stat.txt"
+git -C "$INTEGRATION_DIR" log --oneline "$BASE_BRANCH"..HEAD > "$RUN_DIR/integration-commits.txt"
+git -C "$INTEGRATION_DIR" diff --stat "$BASE_BRANCH"...HEAD > "$RUN_DIR/integration-stat.txt"
+
+if [[ "$(git -C "$ROOT" branch --show-current)" != "$BASE_BRANCH" || -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+  echo "Base worktree changed during the run. Integration is ready at $INTEGRATION_DIR."
+  exit 1
+fi
+
+git -C "$ROOT" merge --ff-only "$INTEGRATION_BRANCH"
+
+RELEASE_ENABLED="$(python3 - "$RUN_DIR/plan.json" <<'PY'
+import json, sys
+print("1" if json.load(open(sys.argv[1])).get("release", {}).get("enabled") else "0")
+PY
+)"
+
+if [[ "$RELEASE_ENABLED" == "1" ]]; then
+  python3 - "$RUN_DIR/plan.json" "$RUN_DIR/release-prompt.md" <<'PY'
+import json, pathlib, sys
+plan = json.load(open(sys.argv[1]))
+instructions = plan["release"]["instructions"]
+pathlib.Path(sys.argv[2]).write_text(f"""You are the HistoryAI release agent. The user approved this complete plan once and asked for the run to continue without another plan approval.
+
+Read PROJECT.md, AGENTS.md, the integrated commits, and the approved plan. Do not implement unrelated changes.
+
+Release instructions:
+{instructions}
+
+Before changing production, validate the target, existing data, counts, reference integrity, and rollback path. Preserve existing card IDs, attempts, grades, coaching records, and secrets. Never insert fake learning attempts. Push committed changes to the private GitHub repository, deploy the verified build to Vercel production, and check https://history-memory-web-v2.vercel.app. If a required credential, permission, or verification is missing, stop that action and report the exact blocker. Do not claim a release that did not succeed.
+
+Output ONLY a JSON object with keys status (complete or blocked), github, redis, vercel, live_url, and blocker. Use empty strings for unavailable evidence.
+""")
+PY
+
+  echo "Running approved release phase..."
+  (
+    cd "$ROOT"
+    codex exec --full-auto --output-last-message "$RUN_DIR/release-report.json" "$(cat "$RUN_DIR/release-prompt.md")"
+  ) > "$RUN_DIR/release.log" 2>&1
+
+  python3 - "$RUN_DIR/release-report.json" <<'PY'
+import json, sys
+report = json.load(open(sys.argv[1]))
+print("Release status:", report.get("status", "unknown"))
+for key in ("github", "redis", "vercel", "live_url", "blocker"):
+    if report.get(key):
+        print(f"{key}: {report[key]}")
+if report.get("status") != "complete":
+    raise SystemExit("Release incomplete. See the release report and log.")
+if any(not report.get(key) for key in ("github", "redis", "vercel", "live_url")):
+    raise SystemExit("Release report is missing GitHub, Redis, Vercel, or live URL evidence.")
+PY
+fi
 
 echo
 echo "========================================"
@@ -299,10 +380,12 @@ echo "Verification:"
 echo "  npm test       ✓"
 echo "  npm run build  ✓"
 echo
-echo "Review the result, then merge manually:"
-echo
-echo "  git switch $BASE_BRANCH"
-echo "  git merge $INTEGRATION_BRANCH"
+echo "Integrated branch:"
+echo "  $BASE_BRANCH"
+if [[ "$RELEASE_ENABLED" == "1" ]]; then
+  echo "Release report:"
+  echo "  $RUN_DIR/release-report.json"
+fi
 echo
 echo "Logs:"
 echo "  $RUN_DIR"

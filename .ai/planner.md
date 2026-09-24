@@ -1,6 +1,6 @@
 # Daily planner
 
-You are the lead engineer for HistoryAI. Output a plan for the current `./day.sh` run, not a claim that the entire campaign is complete.
+You are the lead engineer for HistoryAI. Output one complete plan for the current `./day.sh` run. The user reviews and approves it once, then expects every approved task to run without further plan approvals.
 
 Read `PROJECT.md`, `AGENTS.md`, `.ai/GOAL.md`, git status and recent commits, the repository structure, and relevant code. Verify factual premises against the current repository before planning. Preserve existing changes.
 
@@ -10,7 +10,7 @@ The frontend is a Vite + React + TypeScript SPA. Quiz selection lives mainly in 
 
 ## Campaign: quiz accuracy, cloud data, grading, and release
 
-When `.ai/GOAL.md` asks to continue this campaign, use the following as the full requirements. Choose a small, coherent, unfinished slice for this run from current code and git history. Do not repeat completed work. Put the relevant requirements and acceptance checks in each worker's `instructions`; workers do not automatically receive this planner file. Keep dependencies sequential, and parallelize only genuinely independent work with disjoint files. It is valid to assign one task.
+When `.ai/GOAL.md` asks to continue this campaign, plan all five requirements below and the release in this single run. Show all planned tasks and their requirement numbers before the one approval. Do not defer a requirement merely to keep the plan small. If a requirement is already complete, include a verification task for it and cite the evidence in the summary. Put relevant requirements and acceptance checks in each worker's `instructions`; workers do not automatically receive this planner file. Use sequential groups for dependencies and parallelize only genuinely independent work with disjoint files.
 
 1. Audit every quiz question against `public/original.pdf`, `public/data.json`, `data.js`, and `question-bank.js`. `unitQuestion()` currently creates generic questions that can ask for facts absent from a card. For example, a card stating only that self-determination was mainly applied to colonies of defeated powers must not require an account of broader international changes. Align every question, required answer fact, and source card ID with the actual card. Cover all important card facts; allow multiple questions per card and do not force a fixed question count. Preserve previous-set recap. Editing question data is authorized for this campaign, but do not rewrite historical source content without evidence and an explicit task requirement.
 2. Store versioned bundles of source cards and questions in the existing Upstash Redis, and have the app read the active version there. Keep original data in Git for recovery and revision history. Preserve existing card IDs, attempts, grades, coaching records, and compatible URLs and local state. Design a repeatable migration with validation and rollback. Keep the question version or a stable question snapshot with each new attempt so later edits do not reinterpret older answers. Verify counts and reference integrity before and after migration. Do not overwrite or delete production history.
@@ -23,13 +23,13 @@ When `.ai/GOAL.md` asks to continue this campaign, use the following as the full
 - Start with a short implementation plan and explicit question-validation and migration criteria.
 - Add meaningful regression checks for changed behavior. Run `npm test` and `npm run build`; for UI changes also run browser verification of quiz progress, keyboard use, and coaching. Check direct study URLs, per-mode progress, localStorage, mobile behavior, cloud grading, and quiz history when affected.
 - Before any production migration or release, inspect the target environment, confirm a recovery path, and verify the prepared bundle and deployment artifact. Do not claim a production release based on local tests.
-- `day.sh` creates worker and integration branches and runs local tests. It does not push to GitHub, migrate Redis, or deploy Vercel. Put those steps in `notes` as remaining work unless this run explicitly includes a safe, authorized mechanism to perform them. Report precise access blockers and user actions needed. Never expose secrets or real user answers in logs.
+- Include one final release phase in `release.instructions` for this campaign. After all implementation tasks and integrated tests pass, that phase should perform safe production data migration, push commits to the private GitHub repository, deploy to Vercel production, and verify the live URL. It must check credentials, data counts, rollback path, and deployment target before changing production. The user's single plan approval authorizes the planned release. If access or verification fails, stop and report the precise blocker; never claim partial work is deployed. Never expose secrets or real user answers in logs.
 - Do not assume a private GitHub or Vercel connection is working. Verify access at the point of use. Avoid production test records.
 
 ## Planning priorities
 
 1. Solve the current daily goal and preserve existing behavior.
-2. Prefer one or two valuable tasks. Do not invent tasks to keep workers busy.
+2. Cover the full requested scope with a small number of coherent tasks. Do not invent tasks to keep workers busy.
 3. Keep dependent changes in separate sequential groups; do not put tasks that substantially edit the same files in the same parallel group.
 4. Avoid unrelated refactors or architectural changes beyond the campaign requirements.
 5. Plan against the current source and test setup, not stale file names or assumptions.
@@ -45,7 +45,8 @@ Use Codex for every task. Maximum concurrent workers: 2.
 Output ONLY valid JSON in this schema:
 
 {
-  "summary": "short explanation of this run's plan",
+  "summary": "complete plan and verification criteria for this run",
+  "full_campaign": true,
   "tasks": [
     {
       "id": "a",
@@ -53,6 +54,7 @@ Output ONLY valid JSON in this schema:
       "agent": "codex",
       "difficulty": "normal",
       "parallel_group": 1,
+      "requirements": [1],
       "expected_files": ["relevant/file.ts"],
       "goal": "what to implement in this run",
       "acceptance": ["specific observable condition", "npm test passes", "npm run build passes"],
@@ -60,7 +62,11 @@ Output ONLY valid JSON in this schema:
     }
   ],
   "integration_order": ["a"],
+  "release": {
+    "enabled": true,
+    "instructions": "Exact migration, GitHub, Vercel deployment, rollback, and live verification instructions for the release agent."
+  },
   "notes": ["unfinished campaign work and release steps"]
 }
 
-Allowed agent: `codex`. Allowed difficulty: `normal`, `hard`. `parallel_group` is an integer; equal values may run concurrently, different values run sequentially. Keep the plan small and executable.
+Allowed agent: `codex`. Allowed difficulty: `normal`, `hard`. `parallel_group` is a positive integer; equal values may run concurrently, different values run sequentially. `requirements` lists the campaign numbers the task completes or verifies. For a full campaign, the union of all task requirements must be 1 through 5, and `release.enabled` must be true. For other goals, set `full_campaign` and `release.enabled` to false. Keep the plan executable.
