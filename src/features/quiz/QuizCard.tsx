@@ -54,6 +54,7 @@ export function QuizCard({ question: q, number, total, reviewing = false, onRate
   const answer = useRef<HTMLTextAreaElement>(null);
   const [needCode, setNeedCode] = useState(!accessCode());
   const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<'idle' | 'saving' | 'grading' | 'done' | 'failed'>('idle');
   const [status, setStatus] = useState('답안을 제출하면 클라우드에 기록되고 AI가 핵심 사실별로 살펴봅니다.');
   const [grade, setGrade] = useState<Grade | undefined>();
   const [showResult, setShowResult] = useState(false);
@@ -64,21 +65,35 @@ export function QuizCard({ question: q, number, total, reviewing = false, onRate
   usePaperScale();
   useEffect(() => { if (showResult) known.current?.focus() }, [showResult]);
 
+  const gradeSavedAttempt = async () => {
+    if (!attemptId.current) return;
+    setBusy(true); setPhase('grading'); setStatus('저장 완료 · AI 채점 중');
+    try {
+      const result = await cloud('POST', { type: 'grade', attemptId: attemptId.current });
+      if (result.gradeEvent) record(result.gradeEvent);
+      if (result.aiError || !result.grade) throw new Error(result.aiError || 'AI 채점에 실패했습니다. 같은 답안으로 다시 시도할 수 있습니다.');
+      setGrade(result.grade); setPhase('done'); setStatus('저장 완료 · AI 채점 완료'); setShowResult(true);
+    } catch (error) {
+      setPhase('failed'); setStatus((error as Error).message); setShowResult(true);
+    } finally { setBusy(false) }
+  };
+
   const submit = async () => {
     if (busy) return;
     if (!accessCode()) { setNeedCode(true); requestAnimationFrame(() => document.getElementById('accessCode')?.focus()); return }
     setBusy(true);
+    setPhase('saving');
     setStatus('답안을 클라우드에 저장하고 있습니다…');
     try {
       const question = { ...q, id: String(q.id), topic: q.topic ?? byId.get(q.refs[0])?.topic };
-      const result = await cloud('POST', { type: 'attempt', question, answer: answer.current?.value ?? '' });
+      const id = attemptId.current || (attemptId.current = crypto.randomUUID());
+      const result = await cloud('POST', { type: 'attempt', id, dataVersion: state.questionVersion, question, answer: answer.current?.value ?? '' });
       attemptId.current = (result.event as { id: string }).id;
       record(result.event!);
-      if (result.grade) record({ type: 'grade', attemptId: attemptId.current, grade: result.grade });
-      setStatus(result.aiError || '클라우드 저장 완료 · AI 채점 완료');
-      setGrade(result.grade);
-      setShowResult(true);
+      setPhase('grading'); setShowResult(true);
+      await gradeSavedAttempt();
     } catch (error) {
+      setPhase('failed');
       setStatus((error as Error).message);
       setBusy(false);
       if (!accessCode()) { setNeedCode(true); requestAnimationFrame(() => document.getElementById('accessCode')?.focus()) }
@@ -117,19 +132,21 @@ export function QuizCard({ question: q, number, total, reviewing = false, onRate
         />
       </label>
       <div className="actions">
-        <button id="check" disabled={busy} onClick={submit}>답안 저장 · 분석</button>
+        <button id="check" disabled={busy || showResult} onClick={submit}>{phase === 'saving' ? '저장 중…' : phase === 'grading' ? 'AI 채점 중…' : '답안 저장 · 분석'}</button>
         <button className="ghost" id="hint" onClick={() => { if (evidence.current) evidence.current.open = true }}>원문 근거 보기</button>
       </div>
       <div id="quizAccess" hidden={!needCode}>
         <AccessPanel onReady={() => { setNeedCode(false); submit() }} />
       </div>
+      {busy && <div className={`quiz-progress ${phase}`} aria-hidden="true"><i /></div>}
       <p id="cloudStatus" className="cloud-status" role="status">{status}</p>
+      {phase === 'failed' && attemptId.current && <button className="secondary" id="retryGrade" disabled={busy} onClick={gradeSavedAttempt}>같은 답안으로 AI 재채점</button>}
       <div id="result" className="result" role="status" hidden={!showResult}>
         {showResult && <GradeResult grade={grade} answerKey={q.a} />}
       </div>
       <div id="selfcheck" className="actions" hidden={!showResult}>
-        <button id="known" ref={known} disabled={rating} onClick={() => rate('known')}>확인했어요 →</button>
-        <button id="review" className="secondary" disabled={rating} onClick={() => rate('review')}>다시 볼게요 →</button>
+        <button id="known" ref={known} disabled={rating || phase !== 'done'} onClick={() => rate('known')}>확인했어요 →</button>
+        <button id="review" className="secondary" disabled={rating || phase !== 'done'} onClick={() => rate('review')}>다시 볼게요 →</button>
       </div>
       <details className="evidence" id="evidence" ref={evidence}>
         <summary>원문 근거</summary>

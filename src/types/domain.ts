@@ -58,7 +58,10 @@ export interface Question {
   refs: string[];
   q: string;
   a: string;
+  facts?: string[];
 }
+
+export interface DataBundle { version: number; data: HistoryData; questions: Question[] }
 
 export type QuestionScope = 'current' | 'recap' | 'coach';
 
@@ -139,10 +142,10 @@ export interface Grade {
 export type Rating = 'known' | 'review';
 
 export type CloudEvent =
-  | { type: 'attempt'; id: string; at: string; question: Question & { source?: string; scope?: string }; answer: string }
-  | { type: 'grade'; attemptId: string; grade: Grade; at?: string }
+  | { type: 'attempt'; id: string; at: string; dataVersion?: number; question: Question & { source?: string; scope?: string }; answer: string }
+  | { type: 'grade'; attemptId: string; grade: Grade; dataVersion?: number; at?: string }
   | { type: 'rating'; attemptId: string; rating: Rating; at?: string }
-  | { type: 'reviewed'; questionId: string; pointIndex: number; at: string };
+  | { type: 'reviewed'; questionId: string; pointIndex: number; dataVersion?: number; at: string };
 
 export interface PointHistoryItem {
   at: string;
@@ -179,6 +182,7 @@ export interface TopicSummary {
 }
 
 export interface LearningSnapshot {
+  dataVersion: number;
   all: Array<{ grade?: Grade; rating?: Rating } & Extract<CloudEvent, { type: 'attempt' }>>;
   points: TrackedPoint[];
   gaps: TrackedPoint[];

@@ -6,11 +6,12 @@ export function accessCode(): string | null { return localStorage.getItem(CODE_K
 export function setAccessCode(code: string) { localStorage.setItem(CODE_KEY, code) }
 
 type CloudBody =
-  | { type: 'attempt'; question: Question & { source?: string; scope?: string }; answer: string }
+  | { type: 'attempt'; id: string; dataVersion: number; question: Question & { source?: string; scope?: string }; answer: string }
+  | { type: 'grade'; attemptId: string }
   | { type: 'rating'; attemptId: string; rating: Rating }
-  | { type: 'reviewed'; questionId: string | number; pointIndex: number };
+  | { type: 'reviewed'; questionId: string | number; pointIndex: number; dataVersion: number };
 
-interface CloudResult { events?: CloudEvent[]; event?: CloudEvent; grade?: Grade; aiError?: string; error?: string }
+interface CloudResult { events?: CloudEvent[]; event?: CloudEvent; gradeEvent?: CloudEvent; grade?: Grade; aiError?: string; error?: string }
 
 /**
  * Call the study Function. A 401 clears the stored code so the access panel reappears.
@@ -34,7 +35,13 @@ export async function cloud(method: 'GET' | 'POST' = 'GET', body?: CloudBody): P
 let cloudEvents: CloudEvent[] | null = null;
 
 export function events(): CloudEvent[] | null { return cloudEvents }
-export function record(event: CloudEvent) { if (cloudEvents) cloudEvents.push(event) }
+export function record(event: CloudEvent) {
+  if (!cloudEvents) return;
+  const duplicate = event.type === 'attempt' ? cloudEvents.some(item => item.type === 'attempt' && item.id === event.id)
+    : event.type === 'grade' ? cloudEvents.some(item => item.type === 'grade' && item.attemptId === event.attemptId)
+      : false;
+  if (!duplicate) cloudEvents.push(event);
+}
 
 export async function loadCloud(): Promise<CloudEvent[]> {
   const result = await cloud();

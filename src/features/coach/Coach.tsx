@@ -11,17 +11,18 @@ import { usePaperScale } from '../../components/Paper.tsx';
 import { PointCard } from './PointCard.tsx';
 import { useCloudLog } from './useCloudLog.ts';
 
-type Tab = 'gaps' | 'covered' | 'legacy';
+type Tab = 'gaps' | 'covered' | 'legacy' | 'pending';
 
 export function Coach() {
   const version = useStudyState();
   const [hasCode, setHasCode] = useState(Boolean(accessCode()));
   const log = useCloudLog(hasCode);
   const [tab, setTab] = useState<Tab>('gaps');
+  const [dataVersion, setDataVersion] = useState(state.questionVersion);
   const [topic, setTopic] = useState('all');
   usePaperScale();
 
-  const summary = useMemo(() => learningSnapshot(events()), [version, log.phase]);
+  const summary = useMemo(() => learningSnapshot(events(), dataVersion), [version, log.phase, dataVersion]);
 
   if (!hasCode) return (
     <section className="surface review-loading">
@@ -45,6 +46,7 @@ export function Coach() {
   const shown = (tab === 'gaps' ? summary.gaps : tab === 'covered' ? summary.covered : [])
     .filter(p => topic === 'all' || topicOf(p.question) === topic);
   const legacy = summary.legacy.filter(e => topic === 'all' || String(e.question.topic) === topic);
+  const pending = summary.all.filter(e => !e.grade).filter(e => topic === 'all' || String(e.question.topic) === topic);
   // Worst topics first, then by share of that topic's assessed facts still missing.
   const top = summary.topics.filter(t => t.gaps).sort((a, b) => b.gaps - a.gaps || b.gaps / b.assessed - a.gaps / a.assessed).slice(0, 3);
   const score = summary.points.length ? Math.round(summary.covered.length / summary.points.length * 100) : 0;
@@ -52,9 +54,18 @@ export function Coach() {
   const markRead = async (key: string) => {
     const [questionId, pointIndex] = key.split(/:(?=\d+$)/);
     try {
-      const result = await cloud('POST', { type: 'reviewed', questionId, pointIndex: Number(pointIndex) });
+      const result = await cloud('POST', { type: 'reviewed', questionId, pointIndex: Number(pointIndex), dataVersion });
       record(result.event!);
       refresh();
+    } catch (error) { toast((error as Error).message) }
+  };
+
+  const regrade = async (attemptId: string) => {
+    try {
+      const result = await cloud('POST', { type: 'grade', attemptId });
+      if (result.gradeEvent) record(result.gradeEvent);
+      if (result.aiError || !result.grade) throw new Error(result.aiError || 'AI 재채점에 실패했습니다.');
+      refresh(); toast('저장된 답안을 다시 채점했습니다');
     } catch (error) { toast((error as Error).message) }
   };
 
@@ -124,11 +135,17 @@ export function Coach() {
             save(); navigate('/coach/recap');
           }}>보완 리캡 시작 →</button>
         </div>
+        <label className="field">분석할 질문 버전
+          <select value={dataVersion} onChange={e => { setDataVersion(Number(e.target.value)); setTopic('all'); setTab('gaps') }}>
+            <option value={3}>현재 질문 · v3</option><option value={2}>이전 기록 · v2</option>
+          </select>
+        </label>
         <div className="coach-controls">
           <div className="coach-tabs" role="tablist" aria-label="학습 분석 보기">
             <button data-tab="gaps" aria-selected={tab === 'gaps'} onClick={() => setTab('gaps')}>놓친 사실 {summary.gaps.length}</button>
             <button data-tab="covered" aria-selected={tab === 'covered'} onClick={() => setTab('covered')}>알고 있는 사실 {summary.covered.length}</button>
             <button data-tab="legacy" aria-selected={tab === 'legacy'} onClick={() => setTab('legacy')}>이전 기록 {summary.legacy.length}</button>
+            <button data-tab="pending" aria-selected={tab === 'pending'} onClick={() => setTab('pending')}>미채점 답안 {pending.length}</button>
           </div>
           <label className="field">주제 필터
             <select id="coachTopic" value={topic} onChange={e => setTopic(e.target.value)}>
@@ -138,7 +155,9 @@ export function Coach() {
           </label>
         </div>
         <div className="coach-list">
-          {tab === 'legacy'
+          {tab === 'pending'
+            ? pending.map(e => <article className="coach-point" key={e.id}><span className="point-pill">저장됨 · 미채점</span><h3>{e.question.q}</h3><p>답안은 기존 기록에 저장되어 있습니다. 재채점해도 답안은 추가 저장되지 않습니다.</p><small>{e.question.source}</small><button className="secondary" onClick={() => regrade(e.id)}>저장된 답안 재채점</button></article>)
+            : tab === 'legacy'
             ? legacy.map(e => (
               <article className="coach-point" key={e.id}>
                 <span className="point-pill">세부 재확인 필요</span>

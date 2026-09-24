@@ -11,14 +11,17 @@ type Attempt = Extract<CloudEvent, { type: 'attempt' }>;
  * graded, so the UI can tell 보완 확인 from 다시 빠짐. Attempts graded before per-fact grading
  * existed have no points and are surfaced separately as `legacy` instead of being guessed at.
  */
-export function learningSnapshot(cloudEvents: CloudEvent[] | null): LearningSnapshot {
+export function learningSnapshot(cloudEvents: CloudEvent[] | null, dataVersion = 3): LearningSnapshot {
   const entries = new Map<string, Attempt>(), grades = new Map<string, Grade>(),
     ratings = new Map<string, Rating>(), reviewed = new Map<string, string>();
-  for (const event of cloudEvents || []) {
+  const scoped = (cloudEvents || []).filter(event => event.type === 'attempt' ? (event.dataVersion ?? 2) === dataVersion
+    : event.type === 'grade' ? (event.dataVersion ?? 2) === dataVersion
+      : event.type !== 'reviewed' || (event.dataVersion ?? 2) === dataVersion);
+  for (const event of scoped) {
     if (event.type === 'attempt') entries.set(event.id, event);
     else if (event.type === 'grade') grades.set(event.attemptId, event.grade);
     else if (event.type === 'rating') ratings.set(event.attemptId, event.rating);
-    else if (event.type === 'reviewed') reviewed.set(`${event.questionId}:${event.pointIndex}`, event.at);
+    else if (event.type === 'reviewed') reviewed.set(`${dataVersion}:${event.questionId}:${event.pointIndex}`, event.at);
   }
   const all = [...entries.values()].map(event => ({ ...event, grade: grades.get(event.id), rating: ratings.get(event.id) }));
   const points = new Map<string, TrackedPoint>(), questions = new Map<string | number, Question & { source?: string }>(),
@@ -34,7 +37,7 @@ export function learningSnapshot(cloudEvents: CloudEvent[] | null): LearningSnap
         key, id: q.id, index: part.index, text: part.text, status: part.status, feedback: part.feedback || '',
         question: q, at: event.at, answer: event.answer, history,
         misses: history.filter(item => item.status !== 'covered').length,
-        reviewed: Date.parse(reviewed.get(key) || '0') >= Date.parse(event.at),
+        reviewed: Date.parse(reviewed.get(`${dataVersion}:${key}`) || '0') >= Date.parse(event.at),
       });
     }
   }
@@ -53,5 +56,5 @@ export function learningSnapshot(cloudEvents: CloudEvent[] | null): LearningSnap
       legacy: [...legacy.values()].filter(e => String(e.question.topic) === String(topic.number)).length,
     };
   });
-  return { all, points: list, gaps, covered, topics, questions, legacy: [...legacy.values()], tested: tested.size, unseen: units.length - tested.size, reviewed };
+  return { dataVersion, all, points: list, gaps, covered, topics, questions, legacy: [...legacy.values()], tested: tested.size, unseen: units.length - tested.size, reviewed };
 }

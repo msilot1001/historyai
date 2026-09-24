@@ -6,7 +6,7 @@ const KEY = 'history-v2';
 export const defaults: StudyState = {
   topic: 'all', count: 10, setIndex: 0, indices: {}, session: [], drafts: {}, progress: {},
   stage: 2, blankSeed: 0, timelineDirection: 'event', placements: {}, order: [], selected: null,
-  questionVersion: 2, coachRound: [], coachIndex: 0,
+  questionVersion: 3, coachRound: [], coachIndex: 0,
 };
 
 function validState(x: unknown): x is Partial<StudyState> {
@@ -17,7 +17,7 @@ function validState(x: unknown): x is Partial<StudyState> {
 
 /**
  * Read the persisted study state.
- * Unknown/older payloads fall back to defaults; `questionVersion < 2` resets only the quiz
+ * Unknown/older payloads fall back to defaults; a question version change resets only the quiz
  * index, so existing drafts and per-mode progress survive the upgrade.
  */
 export function load(): StudyState {
@@ -25,7 +25,7 @@ export function load(): StudyState {
     const x = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (!validState(x)) return structuredClone(defaults);
     const next: StudyState = { ...defaults, ...x };
-    if (x.questionVersion !== 2) { next.indices = { ...next.indices, questions: 0 }; next.questionVersion = 2 }
+    if (x.questionVersion !== 3) { next.indices = { ...next.indices, questions: 0 }; next.questionVersion = 3 }
     return next;
   } catch { return structuredClone(defaults) }
 }

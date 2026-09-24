@@ -8,17 +8,25 @@
 //   npx -y playwright@latest install chromium
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import os from 'node:os';
 
 const BASE = process.env.SMOKE_BASE || 'http://127.0.0.1:8771';
 
 function chromiumPath() {
   if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
-  const root = join(process.env.HOME || '', '.cache/ms-playwright');
+  const root = join(process.env.HOME || '', os.platform() === 'darwin' ? 'Library/Caches/ms-playwright' : '.cache/ms-playwright');
   if (!existsSync(root)) return null;
   const dirs = readdirSync(root).filter(d => d.startsWith('chromium')).sort().reverse();
   for (const d of dirs) {
-    for (const rel of ['chrome-linux/chrome', 'chrome-headless-shell-linux64/chrome-headless-shell']) {
+    for (const rel of ['chrome-linux/chrome', 'chrome-headless-shell-linux64/chrome-headless-shell', 'chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing', 'chrome-mac/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing']) {
       const exe = join(root, d, rel);
+      if (existsSync(exe)) return exe;
+    }
+  }
+  if (os.platform() === 'darwin') {
+    const dirs = readdirSync(root).filter(d => d.startsWith('chromium_headless_shell-')).sort().reverse();
+    for (const d of dirs) {
+      const exe = join(root, d, `chrome-headless-shell-${process.arch === 'arm64' ? 'mac-arm64' : 'mac'}`, 'chrome-headless-shell');
       if (existsSync(exe)) return exe;
     }
   }
@@ -152,9 +160,19 @@ check('timeline place reduces tray', await page.locator('.tray [data-card]').cou
 await page.evaluate(() => localStorage.setItem('history-access-code', 'browser-test'));
 await goto('/study/quiz');
 // deliberately weak answer first, so the coach has gaps to recap
+await page.emulateMedia({ reducedMotion: 'reduce' });
 await page.locator('#answer').fill('잘 모르겠습니다');
-await page.locator('#check').click();
+await page.locator('#answer').press('Enter');
+await page.waitForFunction(() => document.querySelector('#cloudStatus')?.textContent === '저장 완료 · AI 채점 중');
+check('saved then grading status', await page.locator('#cloudStatus').textContent().then(t => t === '저장 완료 · AI 채점 중'));
+check('progress bar respects reduced motion', await page.locator('.quiz-progress').evaluate(e => getComputedStyle(e.querySelector('i')).animationName === 'none'));
+check('progress status is accessible', await page.locator('#cloudStatus').getAttribute('role') === 'status');
+await page.waitForSelector('#retryGrade', { timeout: 10000 });
+check('grading failure offers retry', await page.locator('#retryGrade').isVisible());
+const attemptsAfterFailure = await page.evaluate(async () => (await (await fetch('/__test-counts')).json()).attempts);
+await page.locator('#retryGrade').click();
 await page.waitForSelector('.point-results', { timeout: 10000 });
+check('same-attempt retry does not save again', await page.evaluate(async () => (await (await fetch('/__test-counts')).json()).attempts) === attemptsAfterFailure);
 check('weak answer marked missing', await page.locator('.point-result.missing').count() > 0);
 await page.locator('#review').click();
 await page.waitForTimeout(400);
