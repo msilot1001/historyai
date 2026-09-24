@@ -219,21 +219,28 @@ PY
 
     PROMPT="$(cat "$RUN_DIR/task-${TASK_ID}.md")"
 
-    echo "[$TASK_ID] Starting $AGENT: $TITLE"
+    echo "Starting $AGENT: $TITLE"
 
+    echo "Installing dependencies..."
     npm ci --no-audit --no-fund
-    ${CODEX_CMD:-codex exec --full-auto} "$PROMPT"
+    echo "Codex is working..."
+    if ! ${CODEX_CMD:-codex exec --approve-for-me} "$PROMPT"; then
+      echo "Codex failed."
+      exit 1
+    fi
 
+    echo "Running tests..."
     npm test
     npm run build
 
+    echo "Committing result..."
     git add -A
 
     if ! git diff --cached --quiet; then
       git commit -m "ai: $TITLE"
     fi
 
-  ) > "$RUN_DIR/task-${TASK_ID}.log" 2>&1
+  ) 2>&1 | awk -v id="$TASK_ID" '{ print "[" id "] " $0; fflush() }' | tee "$RUN_DIR/task-${TASK_ID}.log"
 
   echo "[$TASK_ID] Done"
 }
@@ -348,8 +355,8 @@ PY
   echo "Running approved release phase..."
   (
     cd "$ROOT"
-    codex exec --full-auto --output-last-message "$RUN_DIR/release-report.json" "$(cat "$RUN_DIR/release-prompt.md")"
-  ) > "$RUN_DIR/release.log" 2>&1
+    codex exec --approve-for-me --output-last-message "$RUN_DIR/release-report.json" "$(cat "$RUN_DIR/release-prompt.md")"
+  ) 2>&1 | awk '{ print "[release] " $0; fflush() }' | tee "$RUN_DIR/release.log"
 
   python3 - "$RUN_DIR/release-report.json" <<'PY'
 import json, sys
