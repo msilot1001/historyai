@@ -1,0 +1,11 @@
+{
+  "name": "history-memory-web-v2",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "ai": "^6.0.290"
+  }
+}

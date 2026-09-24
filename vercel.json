@@ -1,0 +1,7 @@
+{
+  "cleanUrls": true,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": { "api/study.js": { "maxDuration": 40 } },
+  "rewrites": [{ "source": "/study/:path*", "destination": "/" }, { "source": "/review", "destination": "/" }, { "source": "/coach/:path*", "destination": "/" }]
+}
