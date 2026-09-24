@@ -4,15 +4,22 @@
 
 ## 로컬 확인
 
-프로젝트 폴더에서 정적 서버를 실행하세요.
-
 ```bash
-npm test
-npm run build
-python3 -m http.server 8770 -d dist
+npm install
+npm run dev
 ```
 
-브라우저에서 `http://127.0.0.1:8770/`을 엽니다. `/study/...` 직접 접근은 Vercel 배포에서 지원합니다.
+Vite dev 서버가 `/study/...`, `/coach` 직접 접근과 새로고침을 그대로 처리합니다.
+AI 채점까지 확인하려면 `node test-browser-server.mjs`를 띄우고 접속 코드에 `browser-test`를 넣으세요.
+
+검증:
+
+```bash
+npm test            # 데이터·빈칸·퀴즈·클라우드 API 회귀 검사 (Node 22.6+)
+npm run typecheck   # tsc --noEmit
+npm run build       # vite build -> dist
+npm run test:browser  # 브라우저 회귀 검사 (test-browser-server.mjs 필요)
+```
 
 ## Vercel
 

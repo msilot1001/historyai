@@ -14,20 +14,26 @@ HistoryAI는 한국사Ⅱ 원문을 여러 방식으로 반복 회상하고, 퀴
 
 현재 구조:
 
-- Vanilla JavaScript SPA
-- 대부분의 프론트엔드 동작은 `app.js`에 있음
-- `styles.css`에서 UI 스타일 관리
-- `data.json`, `data.js`에 학습 원본 데이터 저장
-- `question-bank.js`에 질문 데이터 저장
-- `api/study.js`는 Vercel Serverless Function
+- Vite + React + TypeScript SPA
+- `index.html`이 Vite entry, `src/main.tsx`가 React root를 `#app`에 mount
+- `src/app/`: router(`router.ts`), 라우팅 dispatch(`App.tsx`), 상태 구독(`store.ts`)
+- `src/components/`: `Paper`(원문 카드·빈칸·360px 축소), `StudyShell`/`Navigation`/`useStudyKeys`, `AccessPanel`
+- `src/features/<mode>/`: 학습 모드별 컴포넌트 (memorize, recall, blanks, timeline, order, compare, quiz, coach)
+- `src/lib/`: DOM에 의존하지 않는 도메인 로직 (`data`, `text`, `state`, `cloze`, `questions`, `cloud`, `snapshot`)
+- `src/types/domain.ts`: 원문·질문·빈칸·학습 상태·채점·코칭 타입
+- `styles.css`에서 UI 스타일 관리 (Vite가 번들)
+- `data.js`, `question-bank.js`는 원문 데이터 파일 그대로 두고 side-effect import로 읽음
+- `public/`: `data.json`, `original.pdf`, `fonts/` (URL 그대로 유지)
+- `api/study.js`는 Vercel Serverless Function (CommonJS, 변경 없음)
 - Vercel Redis에 학습 및 채점 기록 저장
 - Vercel AI Gateway를 통해 AI 채점
-- `test.mjs`가 주요 자동 회귀 테스트
-- `build.mjs`가 정적 배포 파일 생성
+- `test.mjs`가 주요 자동 회귀 테스트 (`src/lib`의 모듈을 직접 import)
+- `test-browser.mjs`가 브라우저 회귀 검사, `test-browser-server.mjs`가 그 정적·API 서버
+- `npm run build`는 `vite build`
 
-현재 frontend의 `app.js`가 상당히 커져 있어 기능 확장과 병렬 agent 개발에 불리하다.
-
-장기적으로 Vite + React + TypeScript 기반으로 점진적으로 전환할 수 있다.
+학습 상태는 React state가 아니라 `src/lib/state.ts`의 mutable 모듈이다. 입력 한 글자마다
+리렌더링하지 않기 위한 의도적 선택이며, 이것이 한글 IME 조합을 깨뜨리지 않는 이유다.
+상태를 바꾼 뒤에는 `src/app/store.ts`의 `refresh()`를 호출한다.
 
 ## Important invariants
 
@@ -43,6 +49,8 @@ HistoryAI는 한국사Ⅱ 원문을 여러 방식으로 반복 회상하고, 퀴
 - 새로운 dependency는 필요한 경우에만 추가한다.
 - 요청 범위를 벗어난 대규모 refactor를 하지 않는다.
 - 실제 secret, access code, API key를 저장소에 넣지 않는다.
+- 빈칸·답안 입력은 uncontrolled로 유지한다. controlled로 바꾸면 한글 IME 조합이 깨진다.
+- `public/`의 파일 URL(`/data.json`, `/original.pdf`, `/fonts/*`)을 바꾸지 않는다.
 
 ## Verification
 
@@ -53,7 +61,12 @@ npm test
 npm run build
 ```
 
-UI 동작을 변경했다면 가능하면 실제 브라우저에서도 해당 flow를 확인한다.
+UI 동작을 변경했다면 브라우저 회귀 검사도 실행한다.
+
+```bash
+node test-browser-server.mjs &
+npm run test:browser
+```
 
 기존 `QA_REPORT.md`에 기록된 동작은 regression 기준으로 사용한다.
 
@@ -123,6 +136,8 @@ HistoryAI는 한국사Ⅱ 원문을 여러 방식으로 반복 회상하고, 퀴
 - 새로운 dependency는 필요한 경우에만 추가한다.
 - 요청 범위를 벗어난 대규모 refactor를 하지 않는다.
 - 실제 secret, access code, API key를 저장소에 넣지 않는다.
+- 빈칸·답안 입력은 uncontrolled로 유지한다. controlled로 바꾸면 한글 IME 조합이 깨진다.
+- `public/`의 파일 URL(`/data.json`, `/original.pdf`, `/fonts/*`)을 바꾸지 않는다.
 
 ## Verification
 
@@ -133,7 +148,12 @@ npm test
 npm run build
 ```
 
-UI 동작을 변경했다면 가능하면 실제 브라우저에서도 해당 flow를 확인한다.
+UI 동작을 변경했다면 브라우저 회귀 검사도 실행한다.
+
+```bash
+node test-browser-server.mjs &
+npm run test:browser
+```
 
 기존 `QA_REPORT.md`에 기록된 동작은 regression 기준으로 사용한다.
 
