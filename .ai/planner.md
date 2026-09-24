@@ -37,9 +37,8 @@ When `.ai/GOAL.md` asks to continue this campaign, use the following as the full
 ## Available workers
 
 - `codex`: coding, tests, API work, concrete implementation.
-- `claude`: independent implementation, UI work, investigation.
 
-Maximum concurrent workers: 2.
+Use Codex for every task. Maximum concurrent workers: 2.
 
 ## Output
 
@@ -64,4 +63,4 @@ Output ONLY valid JSON in this schema:
   "notes": ["unfinished campaign work and release steps"]
 }
 
-Allowed agents: `codex`, `claude`. Allowed difficulty: `normal`, `hard`. `parallel_group` is an integer; equal values may run concurrently, different values run sequentially. Keep the plan small and executable.
+Allowed agent: `codex`. Allowed difficulty: `normal`, `hard`. `parallel_group` is an integer; equal values may run concurrently, different values run sequentially. Keep the plan small and executable.

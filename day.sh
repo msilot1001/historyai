@@ -11,9 +11,12 @@ if [[ -z "$GOAL" ]]; then
   exit 1
 fi
 
-for cmd in git python3 claude codex npm; do
+for cmd in git python3 codex npm; do
   command -v "$cmd" >/dev/null 2>&1 || {
     echo "Missing command: $cmd"
+    if [[ "$cmd" == "npm" ]]; then
+      echo "Install Node.js with nvm, then open a new shell or load nvm before running ./day.sh."
+    fi
     exit 1
   }
 done
@@ -71,7 +74,7 @@ echo
 echo "Planning today's work..."
 echo
 
-claude -p "$(cat "$PLANNER_PROMPT")" > "$RUN_DIR/plan.json"
+codex exec --sandbox read-only --output-last-message "$RUN_DIR/plan.json" "$(cat "$PLANNER_PROMPT")" > "$RUN_DIR/planner.log" 2>&1
 
 python3 - "$RUN_DIR/plan.json" <<'PY'
 import json, sys
@@ -80,6 +83,12 @@ path = sys.argv[1]
 
 with open(path, encoding="utf-8") as f:
     data = json.load(f)
+
+tasks = data.get("tasks", [])
+if not tasks:
+    raise SystemExit("Planner returned no tasks.")
+if any(t.get("agent") != "codex" for t in tasks):
+    raise SystemExit("Planner returned a non-Codex worker.")
 
 print()
 print("=== TODAY'S PLAN ===")
@@ -182,11 +191,7 @@ PY
 
     echo "[$TASK_ID] Starting $AGENT: $TITLE"
 
-    if [[ "$AGENT" == "codex" ]]; then
-      ${CODEX_CMD:-codex exec --full-auto} "$PROMPT"
-    else
-      ${CLAUDE_CMD:-claude -p --permission-mode acceptEdits} "$PROMPT"
-    fi
+    ${CODEX_CMD:-codex exec --full-auto} "$PROMPT"
 
     npm test
     npm run build
