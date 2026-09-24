@@ -67,11 +67,7 @@ export function Navigation({ mode, total, beforeMove, afterMove }: {
   );
 }
 
-/**
- * Alt+←/→ everywhere; bare ←/→/Enter in 먼저 외우기 when nothing else has focus.
- * Passing no mode installs nothing, so routes that still render through app.js keep
- * using its own handler instead of receiving every press twice.
- */
+/** Alt+←/→ on every card mode; bare ←/→/Enter in 먼저 외우기 when nothing else has focus. */
 export function useStudyKeys(mode?: StudyMode) {
   useEffect(() => {
     if (!mode) return;
