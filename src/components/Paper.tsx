@@ -20,10 +20,9 @@ export function resizePapers() {
   });
 }
 
-export function usePaperScale(...deps: unknown[]) {
+/** Rescale after every commit, and on viewport changes. */
+export function usePaperScale() {
   useLayoutEffect(() => { resizePapers(); requestAnimationFrame(resizePapers) });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useLayoutEffect(() => { resizePapers() }, deps);
   useEffect(() => {
     addEventListener('resize', resizePapers);
     return () => removeEventListener('resize', resizePapers);
