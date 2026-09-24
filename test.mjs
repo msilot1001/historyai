@@ -1,5 +1,9 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+// The cloze and quiz engines now live in typed modules; Node strips the types natively.
+import { clozeCandidates as candidates, splitTarget, randomKeyTarget } from './src/lib/cloze.ts';
+import { questionPool } from './src/lib/questions.ts';
+import { gradingText } from './src/lib/text.ts';
 const data=JSON.parse(fs.readFileSync(new URL('./public/data.json',import.meta.url),'utf8'));
 const ids=new Set(data.units.map(u=>u.id));
 if(data.units.length!==217) throw new Error(`학습 단위 수 오류: ${data.units.length}`);
@@ -9,14 +13,9 @@ for(const u of data.units){
   if(!u.lines?.length||!u.answer) throw new Error(`빈 원문: ${u.id}`);
   if(u.lines.map(x=>x.text).join('\n')!==u.answer) throw new Error(`재결합 불일치: ${u.id}`);
 }
-const gradingText=value=>value.normalize('NFC').replace(/[^\p{L}\p{N}]/gu,'').toLocaleLowerCase('ko-KR');
 if(gradingText('용정촌·명동촌')!==gradingText('용정촌 명동촌')) throw new Error('특수기호 제외 채점 오류');
 if(gradingText('3·1 운동')!==gradingText('31운동')) throw new Error('숫자·가운뎃점 채점 오류');
 if(gradingText('용정촌')===gradingText('명동촌')) throw new Error('다른 단어 오답 판정 오류');
-const app=fs.readFileSync(new URL('./app.js',import.meta.url),'utf8');
-const candidates=Function(`${app.slice(app.indexOf('  function clozeCandidates'),app.indexOf('  function targets'))};return clozeCandidates`)();
-const splitTarget=Function(`${app.slice(app.indexOf('  function splitTarget'),app.indexOf('  function targets'))};return splitTarget`)();
-const randomKeyTarget=Function(`${app.slice(app.indexOf('  function splitTarget'),app.indexOf('  function targets'))};return randomKeyTarget`)();
 const phrase='일본사·일본어를 ‘국사’·‘국어’로 교육';
 const pieces=splitTarget({id:'sample',start:0,end:phrase.length,answer:phrase});
 if(pieces.map(x=>x.answer).join('|')!=='일본사|일본어를|국사|국어|교육') throw new Error('긴 빈칸 분할 오류');
@@ -47,12 +46,11 @@ for(const [topic,kind,refs,q,a] of questions){
 }
 const bank=questions.map(([topic,kind,refs,q,a],id)=>({topic,kind,refs:refs.split(' '),q,a,id}));
 const byId=new Map(data.units.map(u=>[u.id,u]));
-const makePool=Function('questionBank','byId','state','filtered','buildSession',`${app.slice(app.indexOf('  function unitQuestion'),app.indexOf('  function modeLength'))};return questionPool`);
 for(const topic of ['all',...data.meta.topics])for(const count of [6,10,20]){
   const selected=data.units.filter(u=>topic==='all'||String(u.topic)===String(topic));
   for(let setIndex=0;setIndex<Math.ceil(selected.length/count);setIndex++){
     const state={topic,count,setIndex,session:selected.slice(setIndex*count,(setIndex+1)*count).map(u=>u.id)};
-    const pool=makePool(bank,byId,state,()=>selected,()=>{throw new Error('빈 세트')})();
+    const pool=questionPool({questionBank:bank,byId,state,filtered:()=>selected,buildSession:()=>{throw new Error('빈 세트')}});
     const main=pool.filter(q=>q.scope==='current'),recap=pool.filter(q=>q.scope==='recap');
     const currentIds=new Set(state.session),priorIds=new Set(selected.slice(0,setIndex*count).map(u=>u.id));
     if(main.length<Math.min(10,state.session.length*2)||main.length>20||recap.length>=10) throw new Error(`퀴즈 문항 수 오류: ${topic}/${count}/${setIndex}`);

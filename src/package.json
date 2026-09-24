@@ -1,0 +1,4 @@
+{
+  "type": "module",
+  "comment": "The repo root stays CommonJS for api/study.js (a Vercel Function). This marks src/ as ESM so node can run the typed modules directly from test.mjs."
+}
