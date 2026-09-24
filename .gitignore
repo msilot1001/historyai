@@ -5,3 +5,7 @@ dist/
 .agents/
 .claude/
 skills-lock.json
+# Local AI orchestration
+.ai/GOAL.md
+.ai/runs/
+.worktrees/
