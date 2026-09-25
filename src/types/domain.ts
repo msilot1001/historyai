@@ -134,6 +134,7 @@ export interface GradePoint {
 export interface Grade {
   level: 'strong' | 'partial' | 'weak';
   reason: string;
+  writingNote?: string;
   missing: string[];
   points: GradePoint[];
   model?: string;

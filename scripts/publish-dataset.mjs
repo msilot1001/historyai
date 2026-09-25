@@ -17,12 +17,12 @@ return 1`;
 
 export function validateBundle(bundle) {
   const units = bundle?.data?.units;
-  if (![2, 3, 4].includes(bundle?.version) || !Array.isArray(units) || !units.length || !Array.isArray(bundle.questions)) throw new Error('invalid dataset bundle');
+  if (![2, 3, 4, 5].includes(bundle?.version) || !Array.isArray(units) || !units.length || !Array.isArray(bundle.questions)) throw new Error('invalid dataset bundle');
   const byId = new Map(units.map(unit => [unit.id, unit]));
   if (byId.size !== units.length || units.some(unit => !unit.lines?.length || unit.lines.map(line => line.text).join('\n') !== unit.answer)) throw new Error('invalid source cards');
   for (const question of bundle.questions) {
     if (!question.q || !question.a || !Array.isArray(question.refs) || !question.refs.length || question.refs.length > 6 || question.refs.some(id => !byId.has(id))) throw new Error('invalid question reference');
-    if (bundle.version === 4 && (!Array.isArray(question.facts) || !question.facts.length || !Array.isArray(question.covers) || !question.covers.length || question.covers.some(c => !question.refs.includes(c.id) || !byId.get(c.id)?.lines[c.line]))) throw new Error('invalid question evidence');
+    if (bundle.version >= 4 && (!Array.isArray(question.facts) || !question.facts.length || !Array.isArray(question.covers) || !question.covers.length || question.covers.some(c => !question.refs.includes(c.id) || !byId.get(c.id)?.lines[c.line]))) throw new Error('invalid question evidence');
   }
   return { version: bundle.version, cards: units.length, questions: bundle.questions.length };
 }

@@ -18,6 +18,7 @@ function GradeResult({ grade, answerKey }: { grade?: Grade; answerKey: string })
   return (
     <>
       {label && <div className={`ai-grade ${grade!.level}`}><b>AI 분석 · {label}</b><span>{grade!.reason}</span></div>}
+      {grade?.writingNote && <p className="ai-writing-note"><b>표현·사실 보완</b> {grade.writingNote}</p>}
       {grade?.points?.length ? (
         <div className="point-results">
           <h3>핵심 사실별 진단 <small>{grade.points.filter(p => p.status === 'covered').length} / {grade.points.length}개 확인</small></h3>

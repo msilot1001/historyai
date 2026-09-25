@@ -11,7 +11,7 @@ createServer(async(req,res)=>{
   if(req.url==='/favicon.ico'){res.writeHead(204);res.end();return}
   if(req.url==='/__test-counts'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({attempts:events.filter(e=>e.type==='attempt').length}));return}
   if(req.url?.startsWith('/api/study')){
-    if(req.method==='GET'&&req.url.includes('dataset=active')){res.setHeader('Content-Type','application/json');res.end(await readFile(join(import.meta.dirname,'public/data-sets/v4.json')));return}
+    if(req.method==='GET'&&req.url.includes('dataset=active')){res.setHeader('Content-Type','application/json');res.end(await readFile(join(import.meta.dirname,'public/data-sets/v5.json')));return}
     if(req.headers['x-study-code']!=='browser-test'){res.writeHead(401,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'접속 코드를 확인해 주세요.'}));return}
     res.setHeader('Content-Type','application/json');
     if(req.method==='GET'){res.end(JSON.stringify({events}));return}
@@ -29,7 +29,7 @@ createServer(async(req,res)=>{
       const facts=event.question.a.split(' / ').slice(0,3);
       const good=event.answer.includes('정답');
       const points=facts.map((text,index)=>({index,text,status:good?'covered':'missing',feedback:good?'핵심을 정확히 설명했습니다.':'이 사실을 설명하지 않았습니다.'}));
-      const grade={level:good?'strong':'weak',reason:good?'핵심 사실을 모두 설명했습니다.':'핵심 사실이 빠졌습니다.',missing:good?[]:facts,points};
+      const grade={level:good?'strong':'weak',reason:good?'핵심 사실을 모두 설명했습니다.':'핵심 사실이 빠졌습니다.',writingNote:good?'':'핵심 사실의 주체를 밝혀 쓰면 뜻이 더 분명합니다.',missing:good?[]:facts,points};
       const gradeEvent={type:'grade',attemptId:event.id,dataVersion:event.dataVersion,grade,at:new Date().toISOString()};events.push(gradeEvent);
       res.end(JSON.stringify({event,gradeEvent,grade}));return;
     }

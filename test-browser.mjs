@@ -156,6 +156,30 @@ await page.locator('.tray [data-select]').first().click();
 await page.locator('.year-slot').first().click();
 check('timeline place reduces tray', await page.locator('.tray [data-card]').count() === trayBefore - 1, String(trayBefore));
 
+// 10b. previous-set recap keeps its eight questions and adds labeled fusion questions
+await goto('/study/quiz');
+await page.evaluate(() => {
+  const s = JSON.parse(localStorage.getItem('history-v2'));
+  s.setIndex = 1; s.session = []; s.indices = { ...s.indices, questions: 0 };
+  localStorage.setItem('history-v2', JSON.stringify(s));
+});
+await page.reload({ waitUntil: 'networkidle' });
+const currentTotal = Number((await page.locator('.quiz-context strong').textContent()).split('/')[1].trim());
+await page.evaluate(total => {
+  const s = JSON.parse(localStorage.getItem('history-v2'));
+  s.indices.questions = total + 8;
+  localStorage.setItem('history-v2', JSON.stringify(s));
+}, currentTotal);
+await page.reload({ waitUntil: 'networkidle' });
+check('previous-set fusion has explicit label', await page.locator('.quiz-context.recap').isVisible() && await page.locator('.question-card .kicker').textContent().then(t => t.trim() === '융합'));
+check('fusion adds to previous-set recap count', Number((await page.locator('.quiz-context strong').textContent()).split('/')[1].trim()) > 8);
+await page.evaluate(() => {
+  const s = JSON.parse(localStorage.getItem('history-v2'));
+  s.setIndex = 0; s.session = []; s.indices = { ...s.indices, questions: 0 };
+  localStorage.setItem('history-v2', JSON.stringify(s));
+});
+await page.reload({ waitUntil: 'networkidle' });
+
 // 11. quiz full cloud flow with access code
 await page.evaluate(() => localStorage.setItem('history-access-code', 'browser-test'));
 await goto('/study/quiz');
@@ -174,6 +198,7 @@ await page.locator('#retryGrade').click();
 await page.waitForSelector('.point-results', { timeout: 10000 });
 check('same-attempt retry does not save again', await page.evaluate(async () => (await (await fetch('/__test-counts')).json()).attempts) === attemptsAfterFailure);
 check('weak answer marked missing', await page.locator('.point-result.missing').count() > 0);
+check('AI flags unclear or inaccurate phrasing briefly', await page.locator('.ai-writing-note').isVisible());
 await page.locator('#review').click();
 await page.waitForTimeout(400);
 await page.locator('#answer').fill('정답을 설명합니다');
@@ -191,8 +216,8 @@ await page.waitForSelector('.coach-summary', { timeout: 10000 });
 check('coach summary', await page.locator('.coach-summary').isVisible());
 check('coach topic matrix', await page.locator('.topic-cell').count() > 0);
 const dataVersion = page.locator('label.field select').first();
-check('coach current version is v4', await dataVersion.inputValue() === '4');
-check('coach keeps previous versions', await dataVersion.locator('option').count() === 3);
+check('coach current version is v5', await dataVersion.inputValue() === '5');
+check('coach keeps previous versions', await dataVersion.locator('option').count() === 4);
 await dataVersion.selectOption('3');
 check('coach can inspect v3 history', await dataVersion.inputValue() === '3');
 await dataVersion.selectOption('4');
@@ -290,7 +315,7 @@ await page.evaluate(() => {
   localStorage.setItem('history-v2', JSON.stringify(state));
 });
 await page.reload({ waitUntil: 'networkidle' });
-await page.waitForFunction(() => JSON.parse(localStorage.getItem('history-v2') || '{}').questionVersion === 4);
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('history-v2') || '{}').questionVersion === 5);
 const upgraded = await page.evaluate(() => JSON.parse(localStorage.getItem('history-v2')));
 check('quiz index resets on data version change', upgraded.indices.questions === 0);
 check('other mode progress survives data version change', upgraded.indices.memorize === 2 && upgraded.progress['recall:t01-e01-u01'] === 'known');

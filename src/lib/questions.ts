@@ -41,13 +41,14 @@ export function questionPool(ctx: PoolContext): PoolQuestion[] {
   const { questionBank, byId, state, filtered, buildSession } = ctx;
   if (!state.session.length) buildSession();
   const all = filtered();
+  const authoredV5 = questionBank.some(q => String(q.id).startsWith('v5:'));
   const current = state.session.map(id => byId.get(id)).filter(Boolean) as Unit[];
   const ids = new Set(state.session);
-  const main = questionBank.filter(q => q.refs.length && q.refs.every(id => ids.has(id)));
+  const main = questionBank.filter(q => q.kind !== '융합' && q.refs.length && q.refs.every(id => ids.has(id)));
   const seen = new Set(main.map(q => q.id));
   const covered = new Set(main.flatMap(q => q.refs));
   for (const unit of current) {
-    if (!covered.has(unit.id)) {
+    if (!covered.has(unit.id) && !authoredV5) {
       for (const question of unitQuestions(unit)) {
         if (!seen.has(question.id)) {
           main.push(question);
@@ -59,18 +60,27 @@ export function questionPool(ctx: PoolContext): PoolQuestion[] {
 
   const prior = all.slice(0, state.setIndex * Number(state.count));
   const priorIds = new Set(prior.map(unit => unit.id));
+  const recapUnits = authoredV5 ? prior.filter(unit => questionBank.some(q => q.kind !== '융합' && q.refs.includes(unit.id) && q.refs.every(id => priorIds.has(id)))) : prior;
   const used = new Set<string | number>();
-  const recap = Array.from({ length: Math.min(8, prior.length) }, (_, i) => prior[Math.floor((i + .5) * prior.length / Math.min(8, prior.length))]).map(unit => {
-    const picked = questionBank.find(q => !used.has(q.id) && q.refs.includes(unit.id) && q.refs.every(id => priorIds.has(id))) || unitQuestions(unit)[0] || unitQuestion(unit);
+  const recap = Array.from({ length: Math.min(8, recapUnits.length) }, (_, i) => recapUnits[Math.floor((i + .5) * recapUnits.length / Math.min(8, recapUnits.length))]).map(unit => {
+    const picked = questionBank.find(q => q.kind !== '융합' && !used.has(q.id) && q.refs.includes(unit.id) && q.refs.every(id => priorIds.has(id))) || (authoredV5 ? null : unitQuestions(unit)[0] || unitQuestion(unit));
+    if (!picked) return null;
     used.add(picked.id);
     return picked;
-  });
+  }).filter((q): q is Question => q !== null);
   const source = (q: Question) => q.refs.map(id => {
     const unit = byId.get(id);
     const index = all.findIndex(item => item.id === id);
     const size = Number(state.count);
     return !unit || index < 0 ? '' : `${Math.floor(index / size) + 1}세트 ${index % size + 1}번째 카드 · 주제 ${unit.topic} ${unit.title}`;
   }).filter(Boolean).join(' / ');
+  const fusions = questionBank.filter(q => q.kind === '융합' && q.refs.length > 1 && q.refs.every(id => priorIds.has(id)));
+  const fusionStart = fusions.length ? ((state.setIndex - 1) * 2) % fusions.length : 0;
+  const selectedFusions = Array.from({ length: Math.min(2, fusions.length) }, (_, i) => fusions[(fusionStart + i) % fusions.length]);
+  const recapTotal = recap.length + selectedFusions.length;
+  const recapPool = recap.map(q => ({ ...q, groupCount: recapTotal })).concat(
+    selectedFusions.map(q => ({ ...q, scope: 'recap' as const, source: source(q), groupCount: recapTotal })),
+  );
   const pool: PoolQuestion[] = main.map(q => ({ ...q, scope: 'current', source: source(q), groupCount: main.length }));
-  return pool.concat(recap.map(q => ({ ...q, scope: 'recap', source: source(q), groupCount: recap.length })));
+  return pool.concat(recapPool.map(q => ({ ...q, scope: 'recap', source: source(q) })));
 }

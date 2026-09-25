@@ -9,8 +9,16 @@ const data=JSON.parse(fs.readFileSync(new URL('./public/data.json',import.meta.u
 const v2=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v2.json',import.meta.url),'utf8'));
 const v3=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v3.json',import.meta.url),'utf8'));
 const v4=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v4.json',import.meta.url),'utf8'));
+const v5=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v5.json',import.meta.url),'utf8'));
 if(v2.version!==2||v3.version!==3||v4.version!==4||v2.data.units.length!==217||v3.data.units.length!==217||v4.data.units.length!==217||v2.questions.length!==88||JSON.stringify(v4.data)!==JSON.stringify(data)) throw new Error('버전 데이터 묶음 수 오류');
 if(validateBundle(v4).questions!==v4.questions.length)throw new Error('v4 배포 자료 검증 오류');
+if(v5.version!==5||JSON.stringify(v5.data)!==JSON.stringify(v4.data)||validateBundle(v5).questions!==v5.questions.length)throw new Error('v5 배포 자료 검증 오류');
+const numberOnly=/언제(?:였|부터|까지| 시행| 수립| 시작| 폐지| 이전| 일어났| 발표| 이루어)|몇\s*(?:회|명|개|곳|년|퍼센트|%)(?:였|이었|인가|나)|얼마나\s*(?:오래|되었|늘었|감소)/;
+if(v5.questions.some(q=>numberOnly.test(q.q)))throw new Error('v5 질문에 숫자·날짜 단독 회상 문항이 남음');
+if(v5.questions.some(q=>!q.id.startsWith('v5:')||!q.facts?.length||!q.covers?.length))throw new Error('v5 질문 버전·근거·필수 사실 누락');
+if(!v5.questions.some(q=>q.kind==='융합'&&q.refs.length>1&&q.facts.length>1))throw new Error('v5 융합 리캡 문항 누락');
+const v5covered=new Set(v5.questions.flatMap(q=>q.covers.map(c=>`${c.id}#${c.line}`)));
+for(const u of data.units)for(const [i,line]of u.lines.entries())if(line.text.trim().startsWith('→')&&!v5covered.has(`${u.id}#${i}`))throw new Error(`v5 원문 사실 줄 누락: ${u.id}#${i}`);
 const publishStore=new Map([['history:dataset:active','3'],['history:dataset:v3',JSON.stringify(v3)]]);
 const mockRedis=async(...args)=>{
   if(args[0]==='GET')return publishStore.get(args[1])??null;
@@ -26,7 +34,19 @@ if(await transitionDataset(mockRedis,{from:3,to:4,bundle:v4})!=='activated'||pub
 if(await transitionDataset(mockRedis,{from:3,to:4,bundle:v4})!=='unchanged'||publishStore.get('history:dataset:v4')!==JSON.stringify(v4))throw new Error('데이터 재실행이 중복/변경을 일으킴');
 let conflict=false;try{await transitionDataset(mockRedis,{from:3,to:4,bundle:{...v4,questions:[]}})}catch{conflict=true}if(!conflict||publishStore.get('history:dataset:active')!=='4')throw new Error('기존 버전 덮어쓰기 차단 실패');
 if(await transitionDataset(mockRedis,{from:4,to:3})!=='activated'||publishStore.get('history:dataset:active')!=='3')throw new Error('버전 되돌리기 오류');
+if(await transitionDataset(mockRedis,{from:3,to:5,bundle:v5})!=='activated'||publishStore.get('history:dataset:active')!=='5')throw new Error('v5 데이터 활성화 오류');
+if(await transitionDataset(mockRedis,{from:3,to:5,bundle:v5})!=='unchanged'||publishStore.get('history:dataset:v5')!==JSON.stringify(v5))throw new Error('v5 게시 재실행이 중복/변경을 일으킴');
+let v5Conflict=false;try{await transitionDataset(mockRedis,{from:3,to:5,bundle:{...v5,questions:[]}})}catch{v5Conflict=true}if(!v5Conflict||publishStore.get('history:dataset:active')!=='5')throw new Error('v5 불변 묶음 덮어쓰기 차단 실패');
+if(await transitionDataset(mockRedis,{from:5,to:3})!=='activated'||publishStore.get('history:dataset:active')!=='3')throw new Error('v5 되돌리기 오류');
 if(eventSummary([{type:'attempt',id:'a'},{type:'attempt',id:'b'},{type:'grade',attemptId:'a'}]).pending!==1)throw new Error('미채점 답안 보존 사전검사 오류');
+const fusionA=data.units[0],fusionB=data.units[1],currentA=data.units[2],currentB=data.units[3];
+const poolQuestions=[fusionA,fusionB,currentA,currentB].map((u,i)=>({id:`plain-${i}`,kind:'일반',refs:[u.id],q:'무슨 관련이 있나?',a:'근거가 있다.'}));
+poolQuestions.push({id:'fusion-test',kind:'융합',refs:[fusionA.id,fusionB.id],q:'두 흐름은 어떻게 연결되나?',a:'함께 분석한다.',facts:['첫째','둘째'],covers:[{id:fusionA.id,line:0},{id:fusionB.id,line:0}]});
+const fusionPool=questionPool({questionBank:poolQuestions,byId:new Map(data.units.map(u=>[u.id,u])),state:{session:[currentA.id,currentB.id],setIndex:1,count:2},filtered:()=>[fusionA,fusionB,currentA,currentB],buildSession(){}});
+if(fusionPool.some(q=>q.scope==='current'&&q.kind==='융합')||fusionPool.filter(q=>q.scope==='recap'&&q.kind!=='융합').length!==2||fusionPool.filter(q=>q.scope==='recap'&&q.kind==='융합').length!==1)throw new Error('융합 문항이 현재 퀴즈에 섞이거나 기존 리캡을 대체함');
+const populationIds=['t02-e12-u04','t02-e12-u05'];
+const populationPool=questionPool({questionBank:v5.questions,byId:new Map(data.units.map(u=>[u.id,u])),state:{session:populationIds,setIndex:0,count:2},filtered:()=>data.units.filter(u=>populationIds.includes(u.id)),buildSession(){}});
+if(populationPool.some(q=>q.scope==='current'&&String(q.id).startsWith('v3:'))||populationPool.some(q=>q.scope==='current'&&q.kind==='융합'))throw new Error('수치 자료 전용 카드에 일반 대체 질문 혼입');
 const ids=new Set(data.units.map(u=>u.id));
 if(data.units.length!==217) throw new Error(`학습 단위 수 오류: ${data.units.length}`);
 if(ids.size!==data.units.length) throw new Error('중복 학습 단위 ID');
@@ -78,6 +98,7 @@ for(const u of data.units)for(const [lineIndex,line] of u.lines.entries())if(lin
 const literalQuestion=v4.questions.find(q=>q.refs.includes('t02-e01-u04'));
 if(!v4.questions.some(q=>/민족 자결주의는 실제로 어떤 식민지에 주로 적용/.test(q.q)&&q.refs.length===1&&q.refs[0]==='t02-e01-u04'&&q.a.includes('패전국의 식민지')))throw new Error('민족 자결주의의 실제 적용 범위 질문 오류');
 if(!data.units.some(u=>v4.questions.filter(q=>q.refs.includes(u.id)).length>1))throw new Error('복수 사실 카드의 문항 분리 누락');
+if(v5.questions.some(q=>q.kind==='융합'&&q.refs.length<2)||v5.questions.some(q=>/^(?:언제|몇\s*(?:명|개|회|년))/.test(q.q)))throw new Error('v5 융합 표시 또는 질문 서술 오류');
 for(const u of data.units){
   const expected=unitQuestions(u),packed=v3.questions.filter(q=>q.refs.length===1&&q.refs[0]===u.id);
   if(expected.length!==packed.length||expected.some(q=>!packed.some(p=>p.id===q.id&&p.a===q.a&&p.facts?.[0]===q.a)))throw new Error(`v3 사실 질문 묶음 오류: ${u.id}`);
@@ -102,6 +123,19 @@ for(const topic of ['all',...data.meta.topics])for(const count of [6,10,20]){
     for(const q of pool)if(String(q.id).length>100||q.q.length>600||q.a.length>2400||q.source.length>400||q.refs.length>6)throw new Error(`클라우드 저장 제한 초과: ${q.id}`);
   }
 }
+for(const topic of ['all',...data.meta.topics])for(const count of [6,10,20]){
+  const selected=data.units.filter(u=>topic==='all'||String(u.topic)===String(topic));
+  for(let setIndex=0;setIndex<Math.ceil(selected.length/count);setIndex++){
+    const state={topic,count,setIndex,session:selected.slice(setIndex*count,(setIndex+1)*count).map(u=>u.id)};
+    const pool=questionPool({questionBank:v5.questions,byId,state,filtered:()=>selected,buildSession:()=>{throw new Error('빈 세트')}});
+    const main=pool.filter(q=>q.scope==='current'),recap=pool.filter(q=>q.scope==='recap'),regular=recap.filter(q=>q.kind!=='융합'),fusions=recap.filter(q=>q.kind==='융합');
+    const priorIds=new Set(selected.slice(0,setIndex*count).map(u=>u.id));
+    const currentIds=new Set(state.session);
+    if(!main.length||main.some(q=>q.kind==='융합')||regular.length!==Math.min(8,priorIds.size)||regular.some(q=>String(q.id).startsWith('v3:'))||fusions.length>2||recap.some(q=>q.groupCount!==recap.length))throw new Error(`v5 현재 퀴즈/리캡 문항 수 오류: ${topic}/${count}/${setIndex}`);
+    for(const id of state.session){const authored=v5.questions.some(q=>q.kind!=='융합'&&q.refs.includes(id)&&q.refs.every(ref=>currentIds.has(ref)));const included=main.some(q=>q.refs.includes(id));if(authored!==included||main.some(q=>q.refs.includes(id)&&String(q.id).startsWith('v3:')))throw new Error(`v5 일반 대체 질문 혼입: ${id}`)}
+    for(const q of recap)if(!q.refs.every(id=>priorIds.has(id))||!q.source.includes('세트'))throw new Error(`v5 리캡 범위 오류: ${q.id}`);
+  }
+}
 console.log(`통과: ${data.entries.length}항목, ${data.units.length}학습 단위, ID/재결합 검사`);
 
 const require=createRequire(import.meta.url),handler=require('./api/study.js'),log=[],store=new Map();
@@ -117,7 +151,7 @@ globalThis.fetch=async(url,options)=>{
     if(sent.model!=='gpt-6-luna'||sent.reasoning?.effort!=='none'||sent.store!==false)throw new Error('OpenAI model options mismatch');
     const content=modelCalls===1?'not-json':modelCalls===2
       ? {summary:'인정은 기억했지만 지원은 빠졌습니다.',ratings:[{index:0,status:'covered',feedback:'인정을 정확히 썼습니다.'},{index:1,status:'missing',feedback:'지원 강화를 쓰지 않았습니다.'}]}
-      : {summary:'두 사실 모두 설명했습니다.',ratings:[{index:0,status:'covered',feedback:'인정을 설명했습니다.'},{index:1,status:'covered',feedback:'지원 강화를 설명했습니다.'}]};
+      : {summary:'두 사실 모두 설명했습니다.',writingNote:'지원했다는 표현은 원문과 달라요. 독립 정부 수립을 주장했다고 고쳐 쓰세요.',ratings:[{index:0,status:'covered',feedback:'인정을 설명했습니다.'},{index:1,status:'covered',feedback:'지원 강화를 설명했습니다.'}]};
     return Response.json({id:'resp_test',object:'response',created_at:Date.now()/1000,status:'completed',model:'gpt-6-luna',output:[{id:'msg_test',type:'message',status:'completed',role:'assistant',content:[{type:'output_text',text:typeof content==='string'?content:JSON.stringify(content),annotations:[]}]}],usage:{input_tokens:120,output_tokens:80,total_tokens:200,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:0}}});
   }
   const [command,key,...args]=JSON.parse(options.body);
@@ -140,9 +174,9 @@ const call=async(method,body,code='test-owner-code',query={})=>{
   return res;
 };
 if((await call('GET',null,'wrong')).statusCode!==401)throw new Error('cloud auth failed');
-store.set('history:dataset:active','4');store.set('history:dataset:v4',JSON.stringify(v4));
+store.set('history:dataset:active','5');store.set('history:dataset:v5',JSON.stringify(v5));
 const active=(await call('GET',null,'wrong',{dataset:'active'}));
-if(active.statusCode!==200||active.body.version!==4||active.body.questions.length!==v4.questions.length)throw new Error('버전 학습 자료 공개 로딩 오류');
+if(active.statusCode!==200||active.body.version!==5||active.body.questions.length!==v5.questions.length)throw new Error('버전 학습 자료 공개 로딩 오류');
 const question={id:3,q:'무슨 일이 있었나?',a:'독립운동',source:'1세트 1번째 카드',refs:['t01-e01-u01'],scope:'current',topic:1};
 const blankId='blank-attempt-1';
 const blankSave=(await call('POST',{type:'attempt',id:blankId,dataVersion:4,question,answer:''})).body;
@@ -169,7 +203,7 @@ if(read.event?.type!=='reviewed'||read.event.dataVersion!==4)throw new Error('�
 const secondId='second-attempt';
 await call('POST',{type:'attempt',id:secondId,dataVersion:3,question:detailed,answer:'대한민국 임시정부 인정과 지원 강화'});
 const second=(await call('POST',{type:'grade',attemptId:secondId})).body;
-if(second.grade?.points?.[1]?.status!=='covered'||modelCalls!==3||store.size<2)throw new Error('고정 사실 기준 보완 재평가 오류');
+if(second.grade?.points?.[1]?.status!=='covered'||second.grade?.writingNote!=='지원했다는 표현은 원문과 달라요. 독립 정부 수립을 주장했다고 고쳐 쓰세요.'||modelCalls!==3||store.size<2)throw new Error('필수 사실·오류 표현 피드백 평가 오류');
 const blank2='blank-with-rubric';
 await call('POST',{type:'attempt',id:blank2,dataVersion:3,question:detailed,answer:''});
 const blankWithRubric=(await call('POST',{type:'grade',attemptId:blank2})).body;
