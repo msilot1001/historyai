@@ -6,7 +6,7 @@ const KEY = 'history-v2';
 export const defaults: StudyState = {
   topic: 'all', count: 10, setIndex: 0, indices: {}, session: [], drafts: {}, progress: {},
   stage: 2, blankSeed: 0, timelineDirection: 'event', placements: {}, order: [], selected: null,
-  questionVersion: 3, coachRound: [], coachIndex: 0,
+  questionVersion: 4, coachRound: [], coachIndex: 0,
 };
 
 function validState(x: unknown): x is Partial<StudyState> {
@@ -25,7 +25,11 @@ export function load(): StudyState {
     const x = JSON.parse(localStorage.getItem(KEY) || 'null');
     if (!validState(x)) return structuredClone(defaults);
     const next: StudyState = { ...defaults, ...x };
-    if (x.questionVersion !== 3) { next.indices = { ...next.indices, questions: 0 }; next.questionVersion = 3 }
+    if (x.questionVersion !== 4) {
+      next.indices = { ...next.indices, questions: 0 };
+      next.questionVersion = 4;
+      try { localStorage.setItem(KEY, JSON.stringify(next)) } catch {}
+    }
     return next;
   } catch { return structuredClone(defaults) }
 }

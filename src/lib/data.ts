@@ -16,10 +16,16 @@ export let questionBank: Question[] = window.HISTORY_QUESTIONS.map(
 );
 
 export function applyDataBundle(bundle: DataBundle) {
-  if (![2, 3].includes(bundle.version) || !bundle.data?.units?.length || !Array.isArray(bundle.questions)) throw new Error('학습 자료 형식이 올바르지 않습니다.');
+  if (![2, 3, 4].includes(bundle.version) || !bundle.data?.units?.length || !Array.isArray(bundle.questions)) throw new Error('학습 자료 형식이 올바르지 않습니다.');
   const ids = new Set(bundle.data.units.map(u => u.id));
-  if (ids.size !== bundle.data.units.length || bundle.data.units.some(u => !u.lines?.length || u.lines.map(line => line.text).join('\n') !== u.answer) ||
-    bundle.questions.some(q => !q.q || !q.a || !Array.isArray(q.refs) || q.refs.length > 6 || q.refs.some(id => !ids.has(id)))) throw new Error('학습 자료의 카드·질문 연결을 확인해 주세요.');
+  const unitsById = new Map(bundle.data.units.map(u => [u.id, u]));
+  const invalidQuestions = bundle.questions.some(q => {
+    if ((typeof q.id !== 'string' && !Number.isInteger(q.id)) || String(q.id).length > 100 || typeof q.q !== 'string' || q.q.length > 600 || typeof q.a !== 'string' || q.a.length > 2400 || !Array.isArray(q.refs) || !q.refs.length || q.refs.length > 6 || q.refs.some(id => !ids.has(id))) return true;
+    if (bundle.version !== 4) return false;
+    return !Array.isArray(q.facts) || !q.facts.length || q.facts.length > 24 || q.facts.some(f => typeof f !== 'string' || !f.trim() || f.length > 500) ||
+      !Array.isArray(q.covers) || !q.covers.length || q.covers.some(c => !ids.has(c.id) || !q.refs.includes(c.id) || !Number.isInteger(c.line) || c.line < 0 || c.line >= (unitsById.get(c.id)?.lines.length || 0));
+  });
+  if (ids.size !== bundle.data.units.length || bundle.data.units.some(u => !u.lines?.length || u.lines.map(line => line.text).join('\n') !== u.answer) || invalidQuestions) throw new Error('학습 자료의 카드·질문 연결을 확인해 주세요.');
   DATA = bundle.data;
   units = DATA.units.map((u, i) => ({ ...u, sourceIndex: i }));
   byId = new Map(units.map(u => [u.id, u]));

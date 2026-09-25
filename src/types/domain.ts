@@ -59,6 +59,7 @@ export interface Question {
   q: string;
   a: string;
   facts?: string[];
+  covers?: { id: string; line: number }[];
 }
 
 export interface DataBundle { version: number; data: HistoryData; questions: Question[] }

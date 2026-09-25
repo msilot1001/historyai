@@ -45,11 +45,14 @@ export function questionPool(ctx: PoolContext): PoolQuestion[] {
   const ids = new Set(state.session);
   const main = questionBank.filter(q => q.refs.length && q.refs.every(id => ids.has(id)));
   const seen = new Set(main.map(q => q.id));
+  const covered = new Set(main.flatMap(q => q.refs));
   for (const unit of current) {
-    for (const question of unitQuestions(unit)) {
-      if (!seen.has(question.id)) {
-        main.push(question);
-        seen.add(question.id);
+    if (!covered.has(unit.id)) {
+      for (const question of unitQuestions(unit)) {
+        if (!seen.has(question.id)) {
+          main.push(question);
+          seen.add(question.id);
+        }
       }
     }
   }

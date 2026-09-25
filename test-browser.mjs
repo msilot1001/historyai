@@ -190,6 +190,12 @@ await goto('/coach');
 await page.waitForSelector('.coach-summary', { timeout: 10000 });
 check('coach summary', await page.locator('.coach-summary').isVisible());
 check('coach topic matrix', await page.locator('.topic-cell').count() > 0);
+const dataVersion = page.locator('label.field select').first();
+check('coach current version is v4', await dataVersion.inputValue() === '4');
+check('coach keeps previous versions', await dataVersion.locator('option').count() === 3);
+await dataVersion.selectOption('3');
+check('coach can inspect v3 history', await dataVersion.inputValue() === '3');
+await dataVersion.selectOption('4');
 await page.locator('[data-tab="covered"]').click();
 check('coach tab switch', await page.locator('[data-tab="covered"]').getAttribute('aria-selected') === 'true');
 await page.locator('[data-tab="gaps"]').click();
@@ -275,6 +281,20 @@ check('reset cleared drafts', await page.locator('#answer').inputValue() === '')
 // 17. localStorage shape unchanged
 const shape = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('history-v2') || '{}')).sort().join(','));
 check('localStorage key shape', shape === 'blankSeed,coachIndex,coachRound,count,drafts,indices,order,placements,progress,questionVersion,selected,session,setIndex,stage,timelineDirection,topic', shape);
+await page.evaluate(() => {
+  const state = JSON.parse(localStorage.getItem('history-v2'));
+  state.questionVersion = 3;
+  state.indices = { ...state.indices, questions: 7, memorize: 2 };
+  state.progress = { ...state.progress, 'recall:t01-e01-u01': 'known' };
+  state.drafts = { ...state.drafts, 'recall:t01-e01-u01': 'kept across question update' };
+  localStorage.setItem('history-v2', JSON.stringify(state));
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('history-v2') || '{}').questionVersion === 4);
+const upgraded = await page.evaluate(() => JSON.parse(localStorage.getItem('history-v2')));
+check('quiz index resets on data version change', upgraded.indices.questions === 0);
+check('other mode progress survives data version change', upgraded.indices.memorize === 2 && upgraded.progress['recall:t01-e01-u01'] === 'known');
+check('draft survives data version change', upgraded.drafts['recall:t01-e01-u01'] === 'kept across question update');
 
 check('no console errors', errors.length === 0, errors.slice(0, 5).join(' | '));
 await browser.close();

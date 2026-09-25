@@ -137,7 +137,7 @@ export function Coach() {
         </div>
         <label className="field">분석할 질문 버전
           <select value={dataVersion} onChange={e => { setDataVersion(Number(e.target.value)); setTopic('all'); setTab('gaps') }}>
-            <option value={3}>현재 질문 · v3</option><option value={2}>이전 기록 · v2</option>
+            <option value={4}>현재 질문 · v4</option><option value={3}>이전 질문 · v3</option><option value={2}>이전 기록 · v2</option>
           </select>
         </label>
         <div className="coach-controls">
