@@ -11,7 +11,7 @@ createServer(async(req,res)=>{
   if(req.url==='/favicon.ico'){res.writeHead(204);res.end();return}
   if(req.url==='/__test-counts'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({attempts:events.filter(e=>e.type==='attempt').length}));return}
   if(req.url?.startsWith('/api/study')){
-    if(req.method==='GET'&&req.url.includes('dataset=active')){res.setHeader('Content-Type','application/json');res.end(await readFile(join(import.meta.dirname,'public/data-sets/v5.json')));return}
+    if(req.method==='GET'&&req.url.includes('dataset=active')){res.setHeader('Content-Type','application/json');res.end(await readFile(join(import.meta.dirname,'public/data-sets/v6.json')));return}
     if(req.headers['x-study-code']!=='browser-test'){res.writeHead(401,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'접속 코드를 확인해 주세요.'}));return}
     res.setHeader('Content-Type','application/json');
     if(req.method==='GET'){res.end(JSON.stringify({events}));return}

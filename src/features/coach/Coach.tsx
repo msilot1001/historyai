@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { byId, topics, units } from '../../lib/data.ts';
+import { byId, questionBank, topics, units } from '../../lib/data.ts';
 import { accessCode, cloud, events, loadCloud, record } from '../../lib/cloud.ts';
 import { learningSnapshot } from '../../lib/snapshot.ts';
+import { questionProgress } from '../../lib/question-progress.ts';
 import { save, state } from '../../lib/state.ts';
 import { toast } from '../../lib/toast.ts';
 import { linkProps, navigate } from '../../app/router.ts';
@@ -23,6 +24,7 @@ export function Coach() {
   usePaperScale();
 
   const summary = useMemo(() => learningSnapshot(events(), dataVersion), [version, log.phase, dataVersion]);
+  const questionStates = useMemo(() => questionProgress(questionBank, events() || [], state.questionVersion), [version, log.phase]);
 
   if (!hasCode) return (
     <section className="surface review-loading">
@@ -50,6 +52,8 @@ export function Coach() {
   // Worst topics first, then by share of that topic's assessed facts still missing.
   const top = summary.topics.filter(t => t.gaps).sort((a, b) => b.gaps - a.gaps || b.gaps / b.assessed - a.gaps / a.assessed).slice(0, 3);
   const score = summary.points.length ? Math.round(summary.covered.length / summary.points.length * 100) : 0;
+  const expandedTopic = topic === 'all' ? undefined : topics.find(t => String(t.number) === topic);
+  const topicQuestions = expandedTopic ? questionBank.filter(q => String(q.topic || byId.get(q.refs[0])?.topic) === topic) : [];
 
   const markRead = async (key: string) => {
     const [questionId, pointIndex] = key.split(/:(?=\d+$)/);
@@ -113,7 +117,9 @@ export function Coach() {
         <div className="topic-matrix">
           {summary.topics.map(t => (
             <button
-              key={t.number} className={`topic-cell${topic === String(t.number) ? ' active' : ''}`} data-topic={t.number}
+              key={t.number} id={`topic-toggle-${t.number}`} className={`topic-cell${topic === String(t.number) ? ' active' : ''}`} data-topic={t.number}
+              aria-label={`주제 ${t.number} ${t.title} 질문과 진행 상태 보기`}
+              aria-expanded={topic === String(t.number)} aria-controls="topic-questions"
               onClick={() => setTopic(topic === String(t.number) ? 'all' : String(t.number))}
             >
               <span>주제 {t.number}</span>
@@ -122,6 +128,22 @@ export function Coach() {
               <small>확인 {t.covered} · 보완 {t.gaps} · 미평가 카드 {t.total - t.tested}</small>
             </button>
           ))}
+        </div>
+        <div className="topic-questions" id="topic-questions" role="region" hidden={topic === 'all'} aria-labelledby={topic === 'all' ? undefined : `topic-toggle-${topic}`}>
+          {expandedTopic && <>
+            <div className="topic-questions-head"><h3>주제 {expandedTopic.number} · {expandedTopic.title} 질문</h3><span>{topicQuestions.length}개 질문</span></div>
+            <div className="topic-question-list">
+              {topicQuestions.map(q => {
+                const status = questionStates.get(q.id) || '미학습';
+                return <article className="topic-question" key={q.id} data-kind={q.kind}>
+                  <div><span className={`point-pill question-status ${status === '보완 필요' ? 'missing' : status === '완료' ? 'covered' : ''}`} role="status" aria-label={`진행 상태: ${status}`}>{status}</span>
+                    {q.kind === '융합' && <span className="question-kind">융합</span>}</div>
+                  <h4>{q.q}</h4>
+                  <small>{q.refs.length > 1 ? `연결 카드 ${q.refs.length}개` : '원문 카드 질문'}</small>
+                </article>;
+              })}
+            </div>
+          </>}
         </div>
       </section>
 
@@ -137,7 +159,7 @@ export function Coach() {
         </div>
         <label className="field">분석할 질문 버전
           <select value={dataVersion} onChange={e => { setDataVersion(Number(e.target.value)); setTopic('all'); setTab('gaps') }}>
-            <option value={5}>현재 질문 · v5</option><option value={4}>이전 질문 · v4</option><option value={3}>이전 질문 · v3</option><option value={2}>이전 기록 · v2</option>
+            <option value={6}>현재 질문 · v6</option><option value={5}>이전 질문 · v5</option><option value={4}>이전 질문 · v4</option><option value={3}>이전 질문 · v3</option><option value={2}>이전 기록 · v2</option>
           </select>
         </label>
         <div className="coach-controls">

@@ -1,20 +1,24 @@
 import { useEffect, useState } from 'react';
 import { byId } from '../../lib/data.ts';
-import { roundUnits, save, state } from '../../lib/state.ts';
+import { filtered, save, state } from '../../lib/state.ts';
+import { cumulativeOrderUnits, shuffleOrder } from '../../lib/order.ts';
 import { StudyShell } from '../../components/StudyShell.tsx';
 import { useRefresh } from '../../app/store.ts';
-
-const shuffle = (ids: string[]) => [...ids].sort(() => Math.random() - .5);
 
 /** Cards are graded against the order they appear in the source note, not by date. */
 export function Order() {
   const refresh = useRefresh();
   const [result, setResult] = useState<{ good: number; total: number } | null>(null);
+  const scope = cumulativeOrderUnits(filtered(), state.setIndex, state.count);
+  const scopeIds = scope.map(u => u.id);
+  const scopeKey = scopeIds.join('|');
 
   // Seed the round once, in an effect: rendering must not mutate or persist state.
   useEffect(() => {
-    if (!state.order.length) { state.order = shuffle(roundUnits().map(u => u.id)); save(); refresh() }
-  }, [refresh]);
+    if (state.order.length !== scopeIds.length || scopeIds.some(id => !state.order.includes(id))) {
+      state.order = shuffleOrder(scopeIds); save(); refresh();
+    }
+  }, [refresh, scopeKey]);
 
   const list = state.order;
   const move = (i: number, d: number, focusId?: string) => {
@@ -26,15 +30,15 @@ export function Order() {
   };
 
   return (
-    <StudyShell mode="order" total={state.session.length}>
+    <StudyShell mode="order" total={list.length || scopeIds.length}>
       <div className="toolbar">
         <button id="check" onClick={() => {
           const expected = [...state.order].sort((a, b) => (byId.get(a)!.sourceIndex) - (byId.get(b)!.sourceIndex));
           setResult({ good: state.order.filter((id, i) => id === expected[i]).length, total: expected.length });
         }}>순서 확인</button>
-        <button id="shuffle" className="ghost" onClick={() => { state.order = shuffle(state.order); save(); setResult(null); refresh() }}>다시 섞기</button>
+        <button id="shuffle" className="ghost" onClick={() => { state.order = shuffleOrder(state.order); save(); setResult(null); refresh() }}>다시 섞기</button>
       </div>
-      <p className="prompt">실제 연대순이 아니라 <b>원본 노트에 실린 순서</b>로 배열하세요. 카드에 초점을 두고 ↑/↓로 이동할 수 있습니다.</p>
+      <p className="prompt">첫 세트부터 현재 세트까지 익힌 카드를 <b>원본 노트에 실린 순서</b>로 배열하세요. 실제 연대순과 다를 수 있습니다. 카드에 초점을 두고 ↑/↓로 이동할 수 있습니다.</p>
       <div className="order-list">
         {list.map((id, i) => {
           const u = byId.get(id);
@@ -68,8 +72,8 @@ export function Order() {
             </div>
           );
         })}
-        <div id="result" className={result ? `result ${result.good === result.total ? 'ok' : 'bad'}` : undefined}>
-          {result && `${result.good} / ${result.total}개가 원본 위치와 일치합니다.`}
+        <div id="result" role="status" aria-live="polite" className={result ? `result ${result.good === result.total ? 'ok' : 'bad'}` : undefined}>
+          {result && `${result.good} / ${result.total}개 카드가 정확한 위치에 있습니다. ${result.good === result.total ? '모두 맞혔습니다!' : '다시 정렬해 보세요.'}`}
         </div>
       </div>
     </StudyShell>

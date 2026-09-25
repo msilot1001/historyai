@@ -57,6 +57,7 @@ const goto = async p => { await page.goto(BASE + p, { waitUntil: 'networkidle' }
 await goto('/');
 check('home hero', await page.locator('.hero h1').isVisible());
 check('home mode cards = 9', await page.locator('.mode-grid .mode-card').count() === 9);
+check('home order card renamed', await page.locator('.mode-card').filter({ hasText: '순서 맞추기' }).count() === 1);
 check('home set label', (await page.locator('.set-copy strong').textContent()).includes('세트'));
 
 // 2. every mode renders via direct URL + refresh
@@ -143,11 +144,41 @@ await page.locator('body').press('ArrowRight');
 check('memorize ArrowRight', (await page.locator('.progress').textContent()) !== m0);
 
 // 9. order mode keyboard move
+await page.evaluate(() => {
+  const s = JSON.parse(localStorage.getItem('history-v2'));
+  const selected = window.HISTORY_DATA.units.filter(u => String(u.topic) === '1');
+  s.topic = '1'; s.count = 6; s.setIndex = 1; s.session = selected.slice(6, 12).map(u => u.id); s.order = [];
+  localStorage.setItem('history-v2', JSON.stringify(s));
+});
 await goto('/study/order');
+check('order page renamed', await page.locator('.study-head h1').textContent() === '순서 맞추기');
+const cumulativeExpected = await page.evaluate(() => Math.min(12, window.HISTORY_DATA.units.filter(u => String(u.topic) === '1').length));
+check('order includes learned sets through current set', await page.locator('[data-order]').count() === cumulativeExpected);
 const firstId = await page.locator('[data-order]').first().getAttribute('data-order');
 await page.locator('[data-order]').nth(1).focus();
 await page.locator('[data-order]').nth(1).press('ArrowUp');
 check('order ArrowUp moves card', (await page.locator('[data-order]').first().getAttribute('data-order')) !== firstId);
+await page.locator('#check').click();
+check('order score gives live complete feedback', await page.locator('#result[role="status"]').isVisible() && (await page.locator('#result').textContent()).includes('개'));
+const scoredMatches = await page.evaluate(() => {
+  const s = JSON.parse(localStorage.getItem('history-v2'));
+  const sourceIds = window.HISTORY_DATA.units.filter(u => String(u.topic) === '1').slice(0, 12).map(u => u.id);
+  return s.order.filter((id, index) => id === sourceIds[index]).length;
+});
+check('order score uses source-note order', (await page.locator('#result').textContent()).startsWith(`${scoredMatches} / ${cumulativeExpected}개`));
+await page.evaluate(() => {
+  const s = JSON.parse(localStorage.getItem('history-v2'));
+  s.order = window.HISTORY_DATA.units.filter(u => String(u.topic) === '1').slice(0, 12).map(u => u.id);
+  localStorage.setItem('history-v2', JSON.stringify(s));
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.locator('#check').click();
+check('order perfect score confirms completion', (await page.locator('#result').textContent()).includes('모두 맞혔습니다!'));
+await page.evaluate(() => {
+  const s = JSON.parse(localStorage.getItem('history-v2'));
+  s.topic = 'all'; s.count = 10; s.setIndex = 0; s.session = window.HISTORY_DATA.units.slice(0, 10).map(u => u.id); s.order = [];
+  localStorage.setItem('history-v2', JSON.stringify(s));
+});
 
 // 10. timeline select + place
 await goto('/study/timeline');
@@ -216,14 +247,29 @@ await page.waitForSelector('.coach-summary', { timeout: 10000 });
 check('coach summary', await page.locator('.coach-summary').isVisible());
 check('coach topic matrix', await page.locator('.topic-cell').count() > 0);
 const dataVersion = page.locator('label.field select').first();
-check('coach current version is v5', await dataVersion.inputValue() === '5');
-check('coach keeps previous versions', await dataVersion.locator('option').count() === 4);
+check('coach current version is v6', await dataVersion.inputValue() === '6');
+check('coach keeps previous versions', await dataVersion.locator('option').count() === 5);
 await dataVersion.selectOption('3');
 check('coach can inspect v3 history', await dataVersion.inputValue() === '3');
 await dataVersion.selectOption('4');
 await page.locator('[data-tab="covered"]').click();
 check('coach tab switch', await page.locator('[data-tab="covered"]').getAttribute('aria-selected') === 'true');
 await page.locator('[data-tab="gaps"]').click();
+{
+  const cell = page.locator('.topic-cell').first();
+  const topic = Number(await cell.getAttribute('data-topic'));
+  const expected = await page.evaluate(async topic => {
+    const bundle = await (await fetch('/api/study?dataset=active')).json();
+    return bundle.questions.filter(q => Number(q.topic) === topic);
+  }, topic);
+  await cell.click();
+  check('topic disclosure accessible and expanded', await cell.getAttribute('aria-expanded') === 'true' && Boolean(await cell.getAttribute('aria-controls')));
+  check('topic disclosure lists every current question', await page.locator('.topic-questions .topic-question').count() === expected.length);
+  check('topic disclosure includes assigned fusion questions', await page.locator('.topic-questions [data-kind="융합"]').count() === expected.filter(q => q.kind === '융합').length);
+  check('topic question state labels are defined', await page.locator('.topic-question .point-pill').evaluateAll(nodes => nodes.every(node => ['미학습', '미채점', '완료', '보완 필요'].includes(node.textContent.trim()))));
+  await cell.click();
+  check('topic disclosure collapses', await cell.getAttribute('aria-expanded') === 'false' && !(await page.locator('.topic-questions').isVisible()));
+}
 
 // 13. /review alias
 await goto('/review');
@@ -293,6 +339,17 @@ for (const w of [1440, 1024, 768, 390, 320]) {
 }
 await page.setViewportSize({ width: 1280, height: 900 });
 
+for (const w of [390, 320]) {
+  await page.setViewportSize({ width: w, height: 800 });
+  for (const [path, title] of [['/', '.hero h1'], ['/coach', '.coach-head h1'], ['/study/order', '.study-head h1']]) {
+    await goto(path);
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    check(`responsive ${path} no overflow @${w}`, over <= 1, String(over));
+    check(`responsive ${path} title visible @${w}`, await page.locator(title).isVisible());
+  }
+}
+await page.setViewportSize({ width: 1280, height: 900 });
+
 // 16. reset clears local state
 await goto('/study/recall');
 await page.locator('#answer').fill('지워질 값');
@@ -308,14 +365,14 @@ const shape = await page.evaluate(() => Object.keys(JSON.parse(localStorage.getI
 check('localStorage key shape', shape === 'blankSeed,coachIndex,coachRound,count,drafts,indices,order,placements,progress,questionVersion,selected,session,setIndex,stage,timelineDirection,topic', shape);
 await page.evaluate(() => {
   const state = JSON.parse(localStorage.getItem('history-v2'));
-  state.questionVersion = 3;
+  state.questionVersion = 5;
   state.indices = { ...state.indices, questions: 7, memorize: 2 };
   state.progress = { ...state.progress, 'recall:t01-e01-u01': 'known' };
   state.drafts = { ...state.drafts, 'recall:t01-e01-u01': 'kept across question update' };
   localStorage.setItem('history-v2', JSON.stringify(state));
 });
 await page.reload({ waitUntil: 'networkidle' });
-await page.waitForFunction(() => JSON.parse(localStorage.getItem('history-v2') || '{}').questionVersion === 5);
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('history-v2') || '{}').questionVersion === 6);
 const upgraded = await page.evaluate(() => JSON.parse(localStorage.getItem('history-v2')));
 check('quiz index resets on data version change', upgraded.indices.questions === 0);
 check('other mode progress survives data version change', upgraded.indices.memorize === 2 && upgraded.progress['recall:t01-e01-u01'] === 'known');

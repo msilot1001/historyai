@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 // The cloze and quiz engines now live in typed modules; Node strips the types natively.
 import { clozeCandidates as candidates, splitTarget, randomKeyTarget } from './src/lib/cloze.ts';
 import { questionPool, unitQuestions } from './src/lib/questions.ts';
+import { cumulativeOrderUnits, shuffleOrder } from './src/lib/order.ts';
+import { questionProgress } from './src/lib/question-progress.ts';
 import { gradingText } from './src/lib/text.ts';
 import { eventSummary, transitionDataset, validateBundle } from './scripts/publish-dataset.mjs';
 const data=JSON.parse(fs.readFileSync(new URL('./public/data.json',import.meta.url),'utf8'));
@@ -10,12 +12,40 @@ const v2=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v2.json',import.
 const v3=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v3.json',import.meta.url),'utf8'));
 const v4=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v4.json',import.meta.url),'utf8'));
 const v5=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v5.json',import.meta.url),'utf8'));
+const v6=JSON.parse(fs.readFileSync(new URL('./public/data-sets/v6.json',import.meta.url),'utf8'));
+const topicOne=data.units.filter(u=>u.topic===1);
+if(cumulativeOrderUnits(topicOne,1,2).map(u=>u.id).join(',')!==topicOne.slice(0,4).map(u=>u.id).join(','))throw new Error('순서 맞추기가 선택 주제의 현재 세트까지 누적하지 않음');
+const randomValues=[0,.5];
+if(shuffleOrder(['a','b','c'],()=>randomValues.shift()).join(',')!=='c,b,a')throw new Error('순서 맞추기 셔플이 Fisher–Yates 순서를 따르지 않음');
+const progressQuestions=[
+  {id:'unseen',topic:1,kind:'일반',refs:['t01-e01-u01'],q:'미학습',a:'',facts:['A']},
+  {id:'pending',topic:1,kind:'일반',refs:['t01-e01-u01'],q:'미채점',a:'',facts:['A']},
+  {id:'done',topic:1,kind:'일반',refs:['t01-e01-u01'],q:'완료',a:'',facts:['A','B']},
+  {id:'gap',topic:1,kind:'일반',refs:['t01-e01-u01'],q:'보완',a:'',facts:['A','B']},
+  {id:'fusion',topic:1,kind:'융합',refs:['t01-e01-u01','t01-e01-u02'],q:'융합',a:'',facts:['A']},
+];
+const progressEvents=[
+  {type:'attempt',id:'old-unseen-attempt',dataVersion:5,at:'2025-01-01',question:progressQuestions[0],answer:'old answer'},
+  {type:'attempt',id:'pending-attempt',dataVersion:6,at:'2026-01-01',question:progressQuestions[1],answer:'답'},
+  {type:'rating',attemptId:'pending-attempt',dataVersion:6,rating:'known'},
+  {type:'attempt',id:'done-attempt',dataVersion:6,at:'2026-01-02',question:progressQuestions[2],answer:'답'},
+  {type:'grade',attemptId:'done-attempt',dataVersion:6,grade:{points:[{index:0,status:'covered'},{index:1,status:'covered'}]}},
+  {type:'attempt',id:'gap-attempt',dataVersion:6,at:'2026-01-03',question:progressQuestions[3],answer:'답'},
+  {type:'grade',attemptId:'gap-attempt',dataVersion:6,grade:{points:[{index:0,status:'covered'},{index:1,status:'missing'}]}},
+  {type:'attempt',id:'fusion-attempt',dataVersion:6,at:'2026-01-04',question:progressQuestions[4],answer:'답'},
+  {type:'grade',attemptId:'fusion-attempt',dataVersion:6,grade:{points:[{index:0,status:'covered'}]}},
+];
+const questionStates=questionProgress(progressQuestions,progressEvents);
+if(questionStates.get('unseen')!=='미학습'||questionStates.get('pending')!=='미채점'||questionStates.get('done')!=='완료'||questionStates.get('gap')!=='보완 필요'||questionStates.get('fusion')!=='완료')throw new Error('질문별 진행 상태 또는 융합 질문 판정 오류');
 if(v2.version!==2||v3.version!==3||v4.version!==4||v2.data.units.length!==217||v3.data.units.length!==217||v4.data.units.length!==217||v2.questions.length!==88||JSON.stringify(v4.data)!==JSON.stringify(data)) throw new Error('버전 데이터 묶음 수 오류');
 if(validateBundle(v4).questions!==v4.questions.length)throw new Error('v4 배포 자료 검증 오류');
 if(v5.version!==5||JSON.stringify(v5.data)!==JSON.stringify(v4.data)||validateBundle(v5).questions!==v5.questions.length)throw new Error('v5 배포 자료 검증 오류');
 const numberOnly=/언제(?:였|부터|까지| 시행| 수립| 시작| 폐지| 이전| 일어났| 발표| 이루어)|몇\s*(?:회|명|개|곳|년|퍼센트|%)(?:였|이었|인가|나)|얼마나\s*(?:오래|되었|늘었|감소)/;
 if(v5.questions.some(q=>numberOnly.test(q.q)))throw new Error('v5 질문에 숫자·날짜 단독 회상 문항이 남음');
 if(v5.questions.some(q=>!q.id.startsWith('v5:')||!q.facts?.length||!q.covers?.length))throw new Error('v5 질문 버전·근거·필수 사실 누락');
+const v5ColdWar=v5.questions.find(q=>q.id==='v5:t13-e01-u01:1'),v6ColdWar=v6.questions.find(q=>q.id==='v5:t13-e01-u01:1');
+if(v5ColdWar.q!=='냉전 형성기에 소련은 어떤 조치와 기구를 내세웠나?'||v6.version!==6||v6ColdWar?.q!=='냉전 대립 과정에서 미국과 소련은 각각 어떤 정책·기구를 내세웠나?'||v6ColdWar.a!=='미국은 트루먼 독트린·마셜 계획·북대서양 조약 기구를 내세웠고, 소련은 베를린을 봉쇄하고 바르샤바 조약 기구를 두었다.'||JSON.stringify(v6ColdWar.facts)!==JSON.stringify(['미국은 트루먼 독트린을 내세웠다.','미국은 마셜 계획을 내세웠다.','미국은 북대서양 조약 기구를 내세웠다.','소련은 베를린을 봉쇄했다.','소련은 바르샤바 조약 기구를 두었다.'])||JSON.stringify(v6ColdWar.covers)!==JSON.stringify([{id:'t13-e01-u01',line:0},{id:'t13-e01-u01',line:1}])||JSON.stringify(v6.data)!==JSON.stringify(v5.data)||v6.questions.length!==v5.questions.length)throw new Error('v6 냉전 문항 범위·근거·기존 자료 보존 오류');
+if(v6.questions.some(q=>!q.id.startsWith('v5:')||!q.facts?.length||!q.covers?.length)||validateBundle(v6).questions!==v6.questions.length)throw new Error('v6 배포 자료 검증 오류');
 if(!v5.questions.some(q=>q.kind==='융합'&&q.refs.length>1&&q.facts.length>1))throw new Error('v5 융합 리캡 문항 누락');
 const v5covered=new Set(v5.questions.flatMap(q=>q.covers.map(c=>`${c.id}#${c.line}`)));
 for(const u of data.units)for(const [i,line]of u.lines.entries())if(line.text.trim().startsWith('→')&&!v5covered.has(`${u.id}#${i}`))throw new Error(`v5 원문 사실 줄 누락: ${u.id}#${i}`);
@@ -37,7 +67,10 @@ if(await transitionDataset(mockRedis,{from:4,to:3})!=='activated'||publishStore.
 if(await transitionDataset(mockRedis,{from:3,to:5,bundle:v5})!=='activated'||publishStore.get('history:dataset:active')!=='5')throw new Error('v5 데이터 활성화 오류');
 if(await transitionDataset(mockRedis,{from:3,to:5,bundle:v5})!=='unchanged'||publishStore.get('history:dataset:v5')!==JSON.stringify(v5))throw new Error('v5 게시 재실행이 중복/변경을 일으킴');
 let v5Conflict=false;try{await transitionDataset(mockRedis,{from:3,to:5,bundle:{...v5,questions:[]}})}catch{v5Conflict=true}if(!v5Conflict||publishStore.get('history:dataset:active')!=='5')throw new Error('v5 불변 묶음 덮어쓰기 차단 실패');
-if(await transitionDataset(mockRedis,{from:5,to:3})!=='activated'||publishStore.get('history:dataset:active')!=='3')throw new Error('v5 되돌리기 오류');
+if(await transitionDataset(mockRedis,{from:5,to:6,bundle:v6})!=='activated'||publishStore.get('history:dataset:active')!=='6')throw new Error('v6 데이터 활성화 오류');
+if(await transitionDataset(mockRedis,{from:5,to:6,bundle:v6})!=='unchanged'||publishStore.get('history:dataset:v6')!==JSON.stringify(v6))throw new Error('v6 게시 재실행이 중복/변경을 일으킴');
+let v6Conflict=false;try{await transitionDataset(mockRedis,{from:5,to:6,bundle:{...v6,questions:[]}})}catch{v6Conflict=true}if(!v6Conflict||publishStore.get('history:dataset:active')!=='6')throw new Error('v6 불변 묶음 덮어쓰기 차단 실패');
+if(await transitionDataset(mockRedis,{from:6,to:5})!=='activated'||publishStore.get('history:dataset:active')!=='5')throw new Error('v6 되돌리기 오류');
 if(eventSummary([{type:'attempt',id:'a'},{type:'attempt',id:'b'},{type:'grade',attemptId:'a'}]).pending!==1)throw new Error('미채점 답안 보존 사전검사 오류');
 const fusionA=data.units[0],fusionB=data.units[1],currentA=data.units[2],currentB=data.units[3];
 const poolQuestions=[fusionA,fusionB,currentA,currentB].map((u,i)=>({id:`plain-${i}`,kind:'일반',refs:[u.id],q:'무슨 관련이 있나?',a:'근거가 있다.'}));
@@ -142,17 +175,22 @@ const require=createRequire(import.meta.url),handler=require('./api/study.js'),l
 process.env.STUDY_ACCESS_CODE='test-owner-code';
 process.env.KV_REST_API_URL='https://test.invalid';
 process.env.KV_REST_API_TOKEN='test-token';
-process.env.OPENAI_API_KEY='test-openai-token';
+const savedGatewayKey=process.env.AI_GATEWAY_API_KEY,savedOidcToken=process.env.VERCEL_OIDC_TOKEN;
+delete process.env.AI_GATEWAY_API_KEY;delete process.env.VERCEL_OIDC_TOKEN;
+const testOidcToken='e30.'+Buffer.from(JSON.stringify({exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.test';
+let requestOidcToken=testOidcToken;
+globalThis[Symbol.for('@vercel/request-context')]={get:()=>requestOidcToken?{headers:{'x-vercel-oidc-token':requestOidcToken}}:{}};
 let modelCalls=0;
 globalThis.fetch=async(url,options)=>{
-  if(String(url).includes('api.openai.com/v1/responses')){
+  if(String(url).includes('api.openai.com/v1/responses'))throw new Error('grading bypassed Vercel AI Gateway');
+  if(String(url).includes('ai-gateway.vercel.sh/v3/ai/language-model')){
     modelCalls++;
-    const sent=JSON.parse(options.body);
-    if(sent.model!=='gpt-6-luna'||sent.reasoning?.effort!=='none'||sent.store!==false)throw new Error('OpenAI model options mismatch');
+    const sent=JSON.parse(options.body),headers=new Headers(options.headers);
+    if(headers.get('authorization')!=='Bearer '+testOidcToken||headers.get('ai-language-model-id')!=='openai/gpt-6-luna'||sent.providerOptions?.openai?.reasoningEffort!=='none'||sent.providerOptions?.openai?.store!==false)throw new Error('AI Gateway OIDC model options mismatch');
     const content=modelCalls===1?'not-json':modelCalls===2
       ? {summary:'인정은 기억했지만 지원은 빠졌습니다.',ratings:[{index:0,status:'covered',feedback:'인정을 정확히 썼습니다.'},{index:1,status:'missing',feedback:'지원 강화를 쓰지 않았습니다.'}]}
       : {summary:'두 사실 모두 설명했습니다.',writingNote:'지원했다는 표현은 원문과 달라요. 독립 정부 수립을 주장했다고 고쳐 쓰세요.',ratings:[{index:0,status:'covered',feedback:'인정을 설명했습니다.'},{index:1,status:'covered',feedback:'지원 강화를 설명했습니다.'}]};
-    return Response.json({id:'resp_test',object:'response',created_at:Date.now()/1000,status:'completed',model:'gpt-6-luna',output:[{id:'msg_test',type:'message',status:'completed',role:'assistant',content:[{type:'output_text',text:typeof content==='string'?content:JSON.stringify(content),annotations:[]}]}],usage:{input_tokens:120,output_tokens:80,total_tokens:200,input_tokens_details:{cached_tokens:0},output_tokens_details:{reasoning_tokens:0}}});
+    return Response.json({content:[{type:'text',text:typeof content==='string'?content:JSON.stringify(content)}],finishReason:{unified:'stop',raw:'stop'},usage:{inputTokens:{total:120,noCache:120,cacheRead:0,cacheWrite:0},outputTokens:{total:80,text:80,reasoning:0}},response:{id:'resp_test',modelId:'openai/gpt-6-luna'},warnings:[]});
   }
   const [command,key,...args]=JSON.parse(options.body);
   if(command==='RPUSH'&&key==='history:quiz:v1'){log.push(args[0]);return Response.json({result:log.length})}
@@ -170,13 +208,13 @@ globalThis.fetch=async(url,options)=>{
 };
 const call=async(method,body,code='test-owner-code',query={})=>{
   const res={statusCode:200,setHeader(){},status(n){this.statusCode=n;return this},json(value){this.body=value;return this}};
-  await handler({method,headers:{'x-study-code':code},body,query},res);
+  await handler({method,headers:{'x-study-code':code,...requestOidcToken?{'x-vercel-oidc-token':requestOidcToken}:{}},body,query},res);
   return res;
 };
 if((await call('GET',null,'wrong')).statusCode!==401)throw new Error('cloud auth failed');
-store.set('history:dataset:active','5');store.set('history:dataset:v5',JSON.stringify(v5));
+store.set('history:dataset:active','6');store.set('history:dataset:v6',JSON.stringify(v6));
 const active=(await call('GET',null,'wrong',{dataset:'active'}));
-if(active.statusCode!==200||active.body.version!==5||active.body.questions.length!==v5.questions.length)throw new Error('버전 학습 자료 공개 로딩 오류');
+if(active.statusCode!==200||active.body.version!==6||active.body.questions.length!==v6.questions.length)throw new Error('버전 학습 자료 공개 로딩 오류');
 const question={id:3,q:'무슨 일이 있었나?',a:'독립운동',source:'1세트 1번째 카드',refs:['t01-e01-u01'],scope:'current',topic:1};
 const blankId='blank-attempt-1';
 const blankSave=(await call('POST',{type:'attempt',id:blankId,dataVersion:4,question,answer:''})).body;
@@ -214,8 +252,12 @@ const legacyGrade=(await call('POST',{type:'grade',attemptId:legacyId})).body;
 if(!legacyGrade.grade||legacyGrade.gradeEvent.dataVersion!==2||log.filter(x=>JSON.parse(x).type==='attempt'&&JSON.parse(x).id===legacyId).length!==1)throw new Error('기존 미채점 답안 재채점 경로 오류');
 const unconfiguredId='without-openai-key';
 await call('POST',{type:'attempt',id:unconfiguredId,dataVersion:3,question:detailed,answer:'임시 연결 확인'});
-const apiKey=process.env.OPENAI_API_KEY;delete process.env.OPENAI_API_KEY;
+requestOidcToken=undefined;
 const unconfigured=(await call('POST',{type:'grade',attemptId:unconfiguredId})).body;
-process.env.OPENAI_API_KEY=apiKey;
-if(!unconfigured.aiError?.includes('API 키가 설정되지 않았습니다')||modelCalls!==4||log.filter(x=>JSON.parse(x).type==='attempt'&&JSON.parse(x).id===unconfiguredId).length!==1)throw new Error('OpenAI 키 미설정 상태 저장·재시도 오류');
-console.log('통과: 인증·자료 버전 로딩·분리 저장/채점·idempotent attempt·동일 ID 재시도·기존 미채점 답안 재채점·버전별 복습');
+requestOidcToken=testOidcToken;
+if(savedGatewayKey)process.env.AI_GATEWAY_API_KEY=savedGatewayKey;
+if(savedOidcToken)process.env.VERCEL_OIDC_TOKEN=savedOidcToken;
+if(!unconfigured.aiError?.includes('Vercel AI Gateway 인증이 설정되지 않았습니다')||modelCalls!==4||log.filter(x=>JSON.parse(x).type==='attempt'&&JSON.parse(x).id===unconfiguredId).length!==1)throw new Error('AI Gateway 인증 미설정 상태 저장·재시도 오류');
+if((await call('POST',{type:'attempt',id:'v6-attempt',dataVersion:6,question,answer:'응답'})).statusCode!==200)throw new Error('v6 답안 저장 거부');
+if((await call('POST',{type:'reviewed',questionId:'v6-question',dataVersion:6,pointIndex:0})).statusCode!==200)throw new Error('v6 복습 기록 거부');
+console.log('통과: 인증·자료 버전 로딩·Gateway OIDC 분리 저장/채점·idempotent attempt·동일 ID 재시도·기존 미채점 답안 재채점·버전별 복습');

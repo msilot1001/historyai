@@ -30,7 +30,7 @@ export interface Unit {
   position: Position;
 }
 
-/** A unit plus its position in the unmodified source order, used by the 순서 회상 mode. */
+/** A unit plus its position in the unmodified source order, used by the 순서 맞추기 mode. */
 export interface IndexedUnit extends Unit {
   sourceIndex: number;
 }

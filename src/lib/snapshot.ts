@@ -11,7 +11,7 @@ type Attempt = Extract<CloudEvent, { type: 'attempt' }>;
  * graded, so the UI can tell 보완 확인 from 다시 빠짐. Attempts graded before per-fact grading
  * existed have no points and are surfaced separately as `legacy` instead of being guessed at.
  */
-export function learningSnapshot(cloudEvents: CloudEvent[] | null, dataVersion = 5): LearningSnapshot {
+export function learningSnapshot(cloudEvents: CloudEvent[] | null, dataVersion = 6): LearningSnapshot {
   const entries = new Map<string, Attempt>(), grades = new Map<string, Grade>(),
     ratings = new Map<string, Rating>(), reviewed = new Map<string, string>();
   const scoped = (cloudEvents || []).filter(event => event.type === 'attempt' ? (event.dataVersion ?? 2) === dataVersion

@@ -6,7 +6,7 @@ import type { DataBundle, HistoryData, IndexedUnit, Question, Topic } from '../t
 
 export let DATA: HistoryData = window.HISTORY_DATA;
 
-/** Units in unmodified source order; `sourceIndex` is what 순서 회상 grades against. */
+/** Units in unmodified source order; `sourceIndex` is what 순서 맞추기 grades against. */
 export let units: IndexedUnit[] = DATA.units.map((u, i) => ({ ...u, sourceIndex: i }));
 export let byId = new Map<string, IndexedUnit>(units.map(u => [u.id, u]));
 export let topics: Topic[] = DATA.topics;
@@ -16,7 +16,7 @@ export let questionBank: Question[] = window.HISTORY_QUESTIONS.map(
 );
 
 export function applyDataBundle(bundle: DataBundle) {
-  if (![2, 3, 4, 5].includes(bundle.version) || !bundle.data?.units?.length || !Array.isArray(bundle.questions)) throw new Error('학습 자료 형식이 올바르지 않습니다.');
+  if (![2, 3, 4, 5, 6].includes(bundle.version) || !bundle.data?.units?.length || !Array.isArray(bundle.questions)) throw new Error('학습 자료 형식이 올바르지 않습니다.');
   const ids = new Set(bundle.data.units.map(u => u.id));
   const unitsById = new Map(bundle.data.units.map(u => [u.id, u]));
   const invalidQuestions = bundle.questions.some(q => {
